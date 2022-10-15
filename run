@@ -1,0 +1,3 @@
+#!/bin/bash
+
+exec cargo run --manifest-path=tool/Cargo.toml -- "$*"
