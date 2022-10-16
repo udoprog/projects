@@ -98,7 +98,13 @@ fn main() -> Result<()> {
         };
 
         if module.is_enabled("ci") {
-            let ci = Ci::new(path.join(".github/workflows"), name.clone(), &uses);
+            let ci = Ci::new(
+                path.join(".github/workflows"),
+                name.clone(),
+                &uses,
+                &cargo,
+                module.workspace,
+            );
             ci.validate(&mut validation)
                 .with_context(|| anyhow!("ci validation: {}", name))?;
         }
@@ -179,23 +185,23 @@ fn main() -> Result<()> {
                 };
             }
             Validation::MismatchedLibRs { path, new_file } => {
-                println! {
-                    "{path}: Mismatched lib.rs", path = path.display()
-                };
-
                 if opts.fix {
                     println!("{path}: Fixing lib.rs", path = path.display());
                     std::fs::write(path, new_file.as_bytes())?;
+                } else {
+                    println! {
+                        "{path}: Mismatched lib.rs", path = path.display()
+                    };
                 }
             }
             Validation::BadReadme { path, new_file } => {
-                println! {
-                    "{path}: Bad README.md", path = path.display()
-                };
-
                 if opts.fix {
                     println!("{path}: Fixing README.md", path = path.display());
                     std::fs::write(path, new_file.as_bytes())?;
+                } else {
+                    println! {
+                        "{path}: Bad README.md", path = path.display()
+                    };
                 }
             }
             Validation::ToplevelHeadings {
@@ -230,6 +236,26 @@ fn main() -> Result<()> {
                 };
 
                 println!("{string}");
+            }
+            Validation::MissingFeature { path, feature } => {
+                println! {
+                    "{path}: missing features `{feature}`", path = path.display()
+                };
+            }
+            Validation::NoFeatures { path } => {
+                println! {
+                    "{path}: trying featured build (--all-features, --no-default-features), but no features present", path = path.display()
+                };
+            }
+            Validation::MissingEmptyFeatures { path } => {
+                println! {
+                    "{path}: missing empty features build", path = path.display()
+                };
+            }
+            Validation::MissingAllFeatures { path } => {
+                println! {
+                    "{path}: missing all features build", path = path.display()
+                };
             }
         }
     }
@@ -284,6 +310,7 @@ pub(crate) struct GitModule<'a> {
     url: Option<Uri>,
     cargo_toml: Option<&'a Path>,
     disabled: BTreeSet<&'a str>,
+    workspace: bool,
 }
 
 impl GitModule<'_> {
@@ -313,6 +340,7 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
         let mut url = None;
         let mut cargo_toml = None;
         let mut disabled = BTreeSet::new();
+        let mut workspace = false;
 
         let mut section = match parser.parse_section()? {
             Some(section) => section,
@@ -339,6 +367,9 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
                         .map(str::trim)
                         .collect();
                 }
+                "workspace" => {
+                    workspace = value == b"true";
+                }
                 _ => {}
             }
         }
@@ -349,6 +380,7 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
             url,
             cargo_toml,
             disabled,
+            workspace,
         }))
     }
 }

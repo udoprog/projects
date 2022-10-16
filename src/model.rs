@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use crate::actions::Actions;
 use crate::badges::Badges;
+use crate::cargo::CargoToml;
 use crate::file::File;
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
@@ -68,21 +69,44 @@ pub(crate) enum Validation {
         range: Range<usize>,
         line_offset: usize,
     },
+    MissingFeature {
+        path: PathBuf,
+        feature: String,
+    },
+    NoFeatures {
+        path: PathBuf,
+    },
+    MissingEmptyFeatures {
+        path: PathBuf,
+    },
+    MissingAllFeatures {
+        path: PathBuf,
+    },
 }
 
 pub(crate) struct Ci<'a> {
     pub(crate) path: PathBuf,
     pub(crate) name: String,
     actions: &'a Actions<'a>,
+    cargo: &'a CargoToml,
+    workspace: bool,
 }
 
 impl<'a> Ci<'a> {
     /// Construct a new CI config.
-    pub(crate) fn new(path: PathBuf, name: String, actions: &'a Actions<'a>) -> Self {
+    pub(crate) fn new(
+        path: PathBuf,
+        name: String,
+        actions: &'a Actions<'a>,
+        cargo: &'a CargoToml,
+        workspace: bool,
+    ) -> Self {
         Self {
             path,
             name,
             actions,
+            cargo,
+            workspace,
         }
     }
 
@@ -170,8 +194,8 @@ impl<'a> Ci<'a> {
         validation: &mut Vec<Validation>,
     ) -> Result<()> {
         if let Some(jobs) = value.get("jobs").and_then(|v| v.as_mapping()) {
-            for (_, value) in jobs {
-                for action in value
+            for (_, job) in jobs {
+                for action in job
                     .get("steps")
                     .and_then(|v| v.as_sequence())
                     .into_iter()
@@ -211,11 +235,203 @@ impl<'a> Ci<'a> {
                         }
                     }
                 }
+
+                if !self.workspace {
+                    self.verify_single_project_build(path, job, validation);
+                }
             }
         }
 
         Ok(())
     }
+
+    fn verify_single_project_build(
+        &self,
+        path: &Path,
+        job: &serde_yaml::Value,
+        validation: &mut Vec<Validation>,
+    ) {
+        let mut cargo_combos = Vec::new();
+        let features = self.cargo.features();
+
+        for step in job
+            .get("steps")
+            .and_then(|v| v.as_sequence())
+            .into_iter()
+            .flatten()
+        {
+            match step.get("run").and_then(|v| v.as_str()) {
+                Some(command) => {
+                    let identity = self.identify_command(command, &features);
+
+                    match identity {
+                        RunIdentity::Cargo(cargo) => {
+                            for feature in &cargo.missing_features {
+                                validation.push(Validation::MissingFeature {
+                                    path: path.to_owned(),
+                                    feature: feature.clone(),
+                                });
+                            }
+
+                            if matches!(cargo.kind, CargoKind::Build | CargoKind::Test) {
+                                cargo_combos.push(cargo);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !cargo_combos.is_empty() {
+            if features.is_empty() {
+                for build in &cargo_combos {
+                    if !matches!(build.features, CargoFeatures::Default) {
+                        validation.push(Validation::NoFeatures {
+                            path: path.to_owned(),
+                        });
+                    }
+                }
+            } else {
+                self.ensure_feature_combo(path, &cargo_combos, validation);
+            }
+        }
+    }
+
+    fn identify_command(&self, command: &str, features: &HashSet<String>) -> RunIdentity {
+        let mut it = command.split(' ').peekable();
+
+        if matches!(it.next(), Some("cargo")) {
+            // Consume arguments.
+            while it
+                .peek()
+                .filter(|p| p.starts_with('+') || p.starts_with('-'))
+                .is_some()
+            {
+                it.next();
+            }
+
+            let kind = match it.next() {
+                Some("build") => CargoKind::Build,
+                Some("test") => CargoKind::Test,
+                _ => CargoKind::None,
+            };
+
+            let (cargo_features, missing_features, features_list) =
+                self.process_features(it, features);
+
+            return RunIdentity::Cargo(Cargo {
+                kind,
+                features: cargo_features,
+                missing_features,
+                features_list,
+            });
+        }
+
+        RunIdentity::None
+    }
+
+    fn process_features(
+        &self,
+        mut it: std::iter::Peekable<std::str::Split<char>>,
+        features: &HashSet<String>,
+    ) -> (CargoFeatures, Vec<String>, Vec<String>) {
+        let mut cargo_features = CargoFeatures::Default;
+        let mut missing_features = Vec::new();
+        let mut features_list = Vec::new();
+
+        while let Some(arg) = it.next() {
+            match arg {
+                "--no-default-features" => {
+                    cargo_features = CargoFeatures::NoDefaultFeatures;
+                }
+                "--all-features" => {
+                    cargo_features = CargoFeatures::AllFeatures;
+                }
+                "--features" | "-F" => {
+                    if let Some(args) = it.next() {
+                        for feature in args.split(',').map(|s| s.trim()) {
+                            if !features.contains(feature) {
+                                missing_features.push(feature.into());
+                            }
+
+                            features_list.push(feature.into());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        (cargo_features, missing_features, features_list)
+    }
+
+    /// Ensure that feature combination is valid.
+    fn ensure_feature_combo(
+        &self,
+        path: &Path,
+        cargos: &[Cargo],
+        validation: &mut Vec<Validation>,
+    ) -> bool {
+        let mut all_features = false;
+        let mut empty_features = false;
+
+        for cargo in cargos {
+            match cargo.features {
+                CargoFeatures::Default => {
+                    return false;
+                }
+                CargoFeatures::NoDefaultFeatures => {
+                    empty_features = empty_features || cargo.features_list.is_empty();
+                }
+                CargoFeatures::AllFeatures => {
+                    all_features = true;
+                }
+            }
+        }
+
+        if !empty_features {
+            validation.push(Validation::MissingEmptyFeatures {
+                path: path.to_owned(),
+            });
+        }
+
+        if !all_features {
+            validation.push(Validation::MissingAllFeatures {
+                path: path.to_owned(),
+            });
+        }
+
+        false
+    }
+}
+
+enum CargoFeatures {
+    Default,
+    NoDefaultFeatures,
+    AllFeatures,
+}
+
+enum CargoKind {
+    Build,
+    Test,
+    None,
+}
+
+struct Cargo {
+    #[allow(unused)]
+    kind: CargoKind,
+    features: CargoFeatures,
+    missing_features: Vec<String>,
+    features_list: Vec<String>,
+}
+
+enum RunIdentity {
+    /// A cargo build command.
+    Cargo(Cargo),
+    /// Empty run identity.
+    None,
 }
 
 pub(crate) struct Readme<'a> {
@@ -296,29 +512,21 @@ impl<'a> Readme<'a> {
 
     /// Process the lib rs.
     fn process_lib_rs(&self) -> Result<(Rc<File>, Rc<File>), anyhow::Error> {
-        let lib_rs = std::fs::read(&self.lib_rs)?;
-        let file = crate::file::File::from_vec(lib_rs);
-        let mut new_file = crate::file::File::new();
-        let mut skipping = false;
-        let mut done_skipping = false;
+        let lib_rs = File::read(&self.lib_rs)?;
+        let mut new_file = File::new();
 
-        for line in file.lines() {
-            if let Some(comment) = line.as_rust_comment() {
-                if !done_skipping && is_badge_comment(comment) {
-                    if skipping {
-                        continue;
-                    }
+        for badge in self.badges.iter() {
+            let string = badge.build(self.params)?;
+            new_file.push(format!("//! {string}").as_bytes());
+        }
 
-                    for badge in self.badges.iter() {
-                        let string = badge.build(self.params)?;
-                        new_file.push(format!("//! {string}").as_bytes());
-                    }
-
-                    skipping = true;
-                    continue;
-                } else {
-                    done_skipping = true;
-                }
+        for line in lib_rs.lines() {
+            if line
+                .as_rust_comment()
+                .filter(|comment| is_badge_comment(comment))
+                .is_some()
+            {
+                continue;
             }
 
             let bytes = line.as_bytes();
@@ -326,7 +534,7 @@ impl<'a> Readme<'a> {
             new_file.push(bytes);
         }
 
-        return Ok((Rc::new(file), Rc::new(new_file)));
+        return Ok((Rc::new(lib_rs), Rc::new(new_file)));
 
         pub const fn trim_ascii_end(mut bytes: &[u8]) -> &[u8] {
             while let [rest @ .., last] = bytes {
@@ -344,7 +552,7 @@ impl<'a> Readme<'a> {
 
 /// Test if line is a badge comment.
 fn is_badge_comment(c: &[u8]) -> bool {
-    if c.starts_with(b" [<img alt=") && c.ends_with(b")") {
+    if c.starts_with(b" [<img ") && c.ends_with(b")") {
         return true;
     }
 
