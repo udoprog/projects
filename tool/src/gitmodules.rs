@@ -1,39 +1,41 @@
 //! Parsing for .gitmodules files.
 
-use std::{ffi::OsStr, os::unix::prelude::OsStrExt, path::Path};
-
 use thiserror::Error;
 
-/// A git module.
-#[derive(Debug, Clone)]
-pub(crate) struct GitModule<'a> {
-    #[allow(unused)]
-    pub(crate) name: &'a str,
-    pub(crate) path: Option<&'a Path>,
-    #[allow(unused)]
-    pub(crate) extra: Vec<(&'a str, &'a [u8])>,
+pub(crate) struct SectionParser<'a, 'p> {
+    name: &'p str,
+    parser: &'a mut Parser<'p>,
 }
 
-/// Parse gitmodules from the given input.
-pub(crate) fn parse<'a>(input: &'a [u8]) -> Result<Vec<GitModule<'a>>, ParseError> {
-    let mut parser = Parser::new(input);
-
-    let mut modules = Vec::new();
-
-    while let Some(module) = parser.parse_section()? {
-        modules.push(module);
+impl<'a, 'p> SectionParser<'a, 'p> {
+    /// Get the name of the section.
+    pub(crate) fn name(&self) -> &'p str {
+        self.name
     }
 
-    return Ok(modules);
+    /// Parse the next section.
+    pub(crate) fn next_section(&mut self) -> Result<Option<(&'p str, &'p [u8])>, ParseError> {
+        // Another section coming.
+        if matches!(self.parser.get(0), Some(b'[') | None) {
+            return Ok(None);
+        }
+
+        let key = self.parser.ident()?;
+        self.parser.expect(b'=')?;
+        self.parser.skip_whitespace();
+        let value = self.parser.until_eol()?;
+        Ok(Some((key, value)))
+    }
 }
 
-struct Parser<'a> {
+pub(crate) struct Parser<'a> {
     input: &'a [u8],
     cursor: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    /// Construct a new parser.
+    pub(crate) fn new(input: &'a [u8]) -> Self {
         Self { input, cursor: 0 }
     }
 
@@ -132,7 +134,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a section.
-    fn parse_section(&mut self) -> Result<Option<GitModule<'a>>, ParseError> {
+    pub(crate) fn parse_section(&mut self) -> Result<Option<SectionParser<'_, 'a>>, ParseError> {
         if self.get(0).is_none() {
             return Ok(None);
         }
@@ -151,33 +153,7 @@ impl<'a> Parser<'a> {
 
         let name = self.quoted_string()?;
         self.expect(b']')?;
-
-        let mut extra = Vec::new();
-        let mut path = None;
-
-        while let Some(b) = self.get(0) {
-            // Another section coming.
-            if matches!(b, b'[') {
-                break;
-            }
-
-            let key = self.ident()?;
-            self.expect(b'=')?;
-            self.skip_whitespace();
-            let value = self.until_eol()?;
-
-            match key {
-                "path" => {
-                    let os_str = OsStr::from_bytes(value);
-                    path = Some(Path::new(os_str));
-                }
-                _ => {
-                    extra.push((key, value));
-                }
-            }
-        }
-
-        Ok(Some(GitModule { name, path, extra }))
+        Ok(Some(SectionParser { name, parser: self }))
     }
 }
 
