@@ -33,21 +33,6 @@ pub(crate) enum Validation {
     },
 }
 
-pub(crate) struct Model<'a> {
-    pub(crate) name: &'a str,
-    pub(crate) ci: Ci,
-    pub(crate) readme: Readme<'a>,
-}
-
-impl Model<'_> {
-    /// Validate the current model.
-    pub(crate) fn validate(&self, errors: &mut Vec<Validation>) -> Result<()> {
-        self.ci.validate(errors)?;
-        self.readme.validate(errors)?;
-        Ok(())
-    }
-}
-
 pub(crate) struct Ci {
     pub(crate) path: PathBuf,
     pub(crate) name: String,
@@ -95,7 +80,7 @@ impl Ci {
             };
 
             validation.push(Validation::MissingWorkflow {
-                path: expected_path.clone(),
+                path: expected_path,
                 candidates,
             });
 
@@ -132,7 +117,7 @@ pub(crate) struct Readme<'a> {
     pub(crate) path: PathBuf,
     pub(crate) lib_rs: PathBuf,
     pub(crate) badges: &'a Badges<'a>,
-    pub(crate) params: Params,
+    pub(crate) params: &'a Params,
 }
 
 impl<'a> Readme<'a> {
@@ -141,7 +126,7 @@ impl<'a> Readme<'a> {
         path: PathBuf,
         lib_rs: PathBuf,
         badges: &'a Badges<'a>,
-        params: Params,
+        params: &'a Params,
     ) -> Self {
         Self {
             path,
@@ -162,7 +147,7 @@ impl<'a> Readme<'a> {
         if self.lib_rs.is_file() {
             let (file, new_file) = self.process_lib_rs()?;
 
-            let readme_from_lib_rs = readme_from_lib_rs(&new_file, &self.params)?;
+            let readme_from_lib_rs = readme_from_lib_rs(&new_file, self.params)?;
 
             if file != new_file {
                 validation.push(Validation::MissingLinks {
@@ -200,7 +185,7 @@ impl<'a> Readme<'a> {
                     }
 
                     for badge in self.badges.iter() {
-                        let string = badge.build(&self.params)?;
+                        let string = badge.build(self.params)?;
                         new_file.push(format!("//! {string}").as_bytes());
                     }
 

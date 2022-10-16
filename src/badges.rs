@@ -21,7 +21,7 @@ impl<'a> Badges<'a> {
 
     /// Iterator over badge builders.
     pub(crate) fn iter(&self) -> impl Iterator<Item = &'_ dyn Badge> {
-        self.builders.iter().map(|badge| *badge)
+        self.builders.iter().copied()
     }
 
     /// Push a badge builder.

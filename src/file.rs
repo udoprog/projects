@@ -53,10 +53,8 @@ impl File {
 
     /// Ensure that file has a trailing newline.
     pub(crate) fn ensure_trailing_newline(&mut self) {
-        if !self.data.is_empty() {
-            if !self.data.ends_with(b"\n") {
-                self.data.push(b'\n');
-            }
+        if !self.data.is_empty() && !self.data.ends_with(b"\n") {
+            self.data.push(b'\n');
         }
     }
 }

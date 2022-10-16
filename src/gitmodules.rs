@@ -145,7 +145,7 @@ impl<'a> Parser<'a> {
             "submodule" => {}
             actual => {
                 return Err(ParseError::ExpectedSlice {
-                    expected: Box::from(&"submodule"[..]),
+                    expected: Box::from("submodule"),
                     actual: Box::from(actual),
                 })
             }

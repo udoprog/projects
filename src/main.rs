@@ -1,9 +1,10 @@
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 
 use crate::badges::{Badge, Badges};
-use crate::model::{Ci, Model, Readme, Validation};
+use crate::model::{Ci, Readme, Validation};
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
 use http::Uri;
@@ -25,7 +26,7 @@ fn main() -> Result<()> {
     let mut opts = Opts::default();
 
     for arg in std::env::args().skip(1) {
-        if arg.starts_with("-") {
+        if arg.starts_with('-') {
             match arg.as_str() {
                 "--fix" => {
                     opts.fix = true;
@@ -51,18 +52,16 @@ fn main() -> Result<()> {
     let gitmodules_bytes = std::fs::read(".gitmodules")?;
     let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
 
-    let mut models = Vec::new();
-
     let name = String::from("CI");
 
+    let mut validation = Vec::new();
+
     for module in modules {
-        if !filters.is_empty() {
-            if !filters.iter().all(|filter| module.name.contains(filter)) {
-                continue;
-            }
+        if !filters.is_empty() && !filters.iter().all(|filter| module.name.contains(filter)) {
+            continue;
         }
 
-        let (path, url) = if let (Some(path), Some(url)) = (module.path, module.url) {
+        let (path, url) = if let (Some(path), Some(url)) = (module.path, &module.url) {
             (path, url)
         } else {
             println!(
@@ -72,7 +71,7 @@ fn main() -> Result<()> {
             continue;
         };
 
-        let cargo_toml = match module.cargo_toml {
+        let cargo_toml = match &module.cargo_toml {
             Some(cargo_toml) => path.join(cargo_toml),
             None => path.join("Cargo.toml"),
         };
@@ -83,26 +82,25 @@ fn main() -> Result<()> {
             .crate_name()
             .with_context(|| anyhow!("{path}: failed to read", path = cargo_toml.display()))?;
 
-        let lib_rs = cargo_toml.parent().unwrap_or(&path).join("src/lib.rs");
+        let lib_rs = cargo_toml.parent().unwrap_or(path).join("src/lib.rs");
 
         let params = Params {
             repo: url.path().trim_matches('/').into(),
             crate_name: crate_name.into(),
         };
 
-        models.push(Model {
-            name: module.name,
-            ci: Ci::new(path.join(".github/workflows"), name.clone()),
-            readme: Readme::new(path.join("README.md"), lib_rs.clone(), &badges, params),
-        });
-    }
+        if module.is_enabled("ci") {
+            let ci = Ci::new(path.join(".github/workflows"), name.clone());
+            ci.validate(&mut validation)
+                .with_context(|| anyhow!("ci validation: {}", name))?;
+        }
 
-    let mut validation = Vec::new();
-
-    for model in &mut models {
-        model
-            .validate(&mut validation)
-            .with_context(|| anyhow!("model: {}", model.name))?;
+        if module.is_enabled("readme") {
+            let readme = Readme::new(path.join("README.md"), lib_rs.clone(), &badges, &params);
+            readme
+                .validate(&mut validation)
+                .with_context(|| anyhow!("readme validation: {}", name))?;
+        }
     }
 
     for error in &validation {
@@ -214,15 +212,22 @@ impl Badge for BuildStatusBadge {
 /// A git module.
 #[derive(Debug, Clone)]
 pub(crate) struct GitModule<'a> {
-    #[allow(unused)]
-    pub(crate) name: &'a str,
-    pub(crate) path: Option<&'a Path>,
-    pub(crate) url: Option<Uri>,
-    pub(crate) cargo_toml: Option<&'a Path>,
+    name: &'a str,
+    path: Option<&'a Path>,
+    url: Option<Uri>,
+    cargo_toml: Option<&'a Path>,
+    disabled: BTreeSet<&'a str>,
+}
+
+impl GitModule<'_> {
+    /// Test if a feature is disabled.
+    fn is_enabled(&self, feature: &str) -> bool {
+        !self.disabled.contains(feature)
+    }
 }
 
 /// Parse gitmodules from the given input.
-pub(crate) fn parse_git_modules<'a>(input: &'a [u8]) -> Result<Vec<GitModule<'a>>> {
+pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
     let mut parser = gitmodules::Parser::new(input);
 
     let mut modules = Vec::new();
@@ -240,6 +245,7 @@ pub(crate) fn parse_git_modules<'a>(input: &'a [u8]) -> Result<Vec<GitModule<'a>
         let mut path = None;
         let mut url = None;
         let mut cargo_toml = None;
+        let mut disabled = BTreeSet::new();
 
         let mut section = match parser.parse_section()? {
             Some(section) => section,
@@ -260,6 +266,12 @@ pub(crate) fn parse_git_modules<'a>(input: &'a [u8]) -> Result<Vec<GitModule<'a>
                     let os_str = OsStr::from_bytes(value);
                     cargo_toml = Some(Path::new(os_str));
                 }
+                "disabled" => {
+                    disabled = std::str::from_utf8(value)?
+                        .split(',')
+                        .map(str::trim)
+                        .collect();
+                }
                 _ => {}
             }
         }
@@ -269,6 +281,7 @@ pub(crate) fn parse_git_modules<'a>(input: &'a [u8]) -> Result<Vec<GitModule<'a>
             path,
             url,
             cargo_toml,
+            disabled,
         }))
     }
 }

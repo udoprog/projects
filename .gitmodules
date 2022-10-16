@@ -1,55 +1,56 @@
 [submodule "fixed-map"]
-	path = fixed-map
+	path = repos/fixed-map
 	url = https://github.com/udoprog/fixed-map
 [submodule "genco"]
-	path = genco
+	path = repos/genco
 	url = https://github.com/udoprog/genco
 [submodule "relative-path"]
-	path = relative-path
+	path = repos/relative-path
 	url = https://github.com/udoprog/relative-path
 [submodule "leaky-bucket"]
-	path = leaky-bucket
+	path = repos/leaky-bucket
 	url = https://github.com/udoprog/leaky-bucket
 [submodule "serde-hashkey"]
-	path = serde-hashkey
+	path = repos/serde-hashkey
 	url = https://github.com/udoprog/serde-hashkey
 [submodule "musli"]
-	path = musli
+	path = repos/musli
 	url = https://github.com/udoprog/musli
 	cargo-toml = crates/musli/Cargo.toml
 [submodule "unsync"]
-	path = unsync
+	path = repos/unsync
 	url = https://github.com/udoprog/unsync
 [submodule "unicycle"]
-	path = unicycle
+	path = repos/unicycle
 	url = https://github.com/udoprog/unicycle
 [submodule "checkers"]
-	path = checkers
+	path = repos/checkers
 	url = https://github.com/udoprog/checkers
 [submodule "async-oauth2"]
-	path = async-oauth2
+	path = repos/async-oauth2
 	url = https://github.com/udoprog/async-oauth2
 [submodule "argwerk"]
-	path = argwerk
+	path = repos/argwerk
 	url = https://github.com/udoprog/argwerk
 [submodule "selectme"]
-	path = selectme
+	path = repos/selectme
 	url = https://github.com/udoprog/selectme
 [submodule "syntree"]
-	path = syntree
+	path = repos/syntree
 	url = https://github.com/udoprog/syntree
 [submodule "anything"]
-	path = anything
+	path = repos/anything
 	url = https://github.com/udoprog/anything
 [submodule "bittle"]
-	path = bittle
+	path = repos/bittle
 	url = https://github.com/udoprog/bittle
 [submodule "quickcfg"]
-	path = quickcfg
+	path = repos/quickcfg
 	url = https://github.com/udoprog/quickcfg
+	disabled = ci
 [submodule "async-fuse"]
-	path = async-fuse
+	path = repos/async-fuse
 	url = https://github.com/udoprog/async-fuse
 [submodule "futures-cache"]
-	path = futures-cache
+	path = repos/futures-cache
 	url = https://github.com/udoprog/futures-cache
