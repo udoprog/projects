@@ -273,7 +273,7 @@ impl<'a> Ci<'a> {
                                 });
                             }
 
-                            if matches!(cargo.kind, CargoKind::Build | CargoKind::Test) {
+                            if matches!(cargo.kind, CargoKind::Build) {
                                 cargo_combos.push(cargo);
                             }
                         }
