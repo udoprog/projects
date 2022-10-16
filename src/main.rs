@@ -3,12 +3,15 @@ use std::ffi::OsStr;
 use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 
+use crate::actions::{Actions, ActionsCheck};
 use crate::badges::{Badge, Badges};
+use crate::file::LineColumn;
 use crate::model::{Ci, Readme, Validation};
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
 use http::Uri;
 
+mod actions;
 mod badges;
 mod cargo;
 mod file;
@@ -48,6 +51,11 @@ fn main() -> Result<()> {
     badges.push(&CratesIoBadge);
     badges.push(&DocsRsBadge);
     badges.push(&BuildStatusBadge);
+
+    let mut uses = Actions::default();
+    uses.latest("actions/checkout", "v3");
+    uses.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
+    uses.deny("actions-rs/cargo", "using `run` is less verbose and faster");
 
     let gitmodules_bytes = std::fs::read(".gitmodules")?;
     let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
@@ -90,7 +98,7 @@ fn main() -> Result<()> {
         };
 
         if module.is_enabled("ci") {
-            let ci = Ci::new(path.join(".github/workflows"), name.clone());
+            let ci = Ci::new(path.join(".github/workflows"), name.clone(), &uses);
             ci.validate(&mut validation)
                 .with_context(|| anyhow!("ci validation: {}", name))?;
         }
@@ -129,6 +137,9 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            Validation::DeprecatedWorkflow { path } => {
+                println!("{path}: Reprecated Workflow", path = path.display());
+            }
             Validation::WrongWorkflowName {
                 path,
                 actual,
@@ -139,18 +150,41 @@ fn main() -> Result<()> {
                     path = path.display()
                 };
             }
+            Validation::OutdatedAction {
+                path,
+                name,
+                actual,
+                expected,
+            } => {
+                println! {
+                    "{path}: Outdated action `{name}`: {actual} (actual) != {expected} (expected)",
+                    path = path.display()
+                };
+            }
+            Validation::DeniedAction { path, name, reason } => {
+                println! {
+                    "{path}: Denied action `{name}`: {reason}",
+                    path = path.display()
+                };
+            }
+            Validation::CustomActionsCheck { path, name, reason } => {
+                println! {
+                    "{path}: Action validation failed `{name}`: {reason}",
+                    path = path.display()
+                };
+            }
             Validation::MissingReadme { path } => {
                 println! {
                     "{path}: Missing README", path = path.display()
                 };
             }
-            Validation::MissingLinks { path, new_file } => {
+            Validation::MismatchedLibRs { path, new_file } => {
                 println! {
-                    "{path}: Bad Links", path = path.display()
+                    "{path}: Mismatched lib.rs", path = path.display()
                 };
 
                 if opts.fix {
-                    println!("{path}: Fixing links", path = path.display());
+                    println!("{path}: Fixing lib.rs", path = path.display());
                     std::fs::write(path, new_file.as_bytes())?;
                 }
             }
@@ -163,6 +197,39 @@ fn main() -> Result<()> {
                     println!("{path}: Fixing README.md", path = path.display());
                     std::fs::write(path, new_file.as_bytes())?;
                 }
+            }
+            Validation::ToplevelHeadings {
+                path,
+                file: new_file,
+                range,
+                line_offset,
+            } => {
+                let (LineColumn { line, column, .. }, string) =
+                    new_file.line_column(range.start)?;
+                let line = line_offset + line;
+                let column = column + 4;
+
+                println! {
+                    "{path}:{line}:{column}: doc comment has toplevel headings", path = path.display()
+                };
+
+                println!("{string}");
+            }
+            Validation::MissingPreceedingBr {
+                path,
+                file: new_file,
+                range,
+                line_offset,
+            } => {
+                let (LineColumn { line, column }, string) = new_file.line_column(range.start)?;
+                let line = line_offset + line;
+                let column = column + 4;
+
+                println! {
+                    "{path}:{line}:{column}: missing preceeding <br>", path = path.display()
+                };
+
+                println!("{string}");
             }
         }
     }
@@ -283,5 +350,22 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
             cargo_toml,
             disabled,
         }))
+    }
+}
+
+struct ActionsRsToolchainActionsCheck;
+
+impl ActionsCheck for ActionsRsToolchainActionsCheck {
+    fn check(&self, mapping: &serde_yaml::Mapping) -> Result<(), String> {
+        let with = match mapping.get("with").and_then(|v| v.as_mapping()) {
+            Some(with) => with,
+            None => return Err(String::from("missing with")),
+        };
+
+        if with.get("toolchain").and_then(|v| v.as_str()).is_none() {
+            return Err(String::from("missing toolchain"));
+        }
+
+        Ok(())
     }
 }
