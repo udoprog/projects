@@ -405,7 +405,6 @@ fn markdown_checks(file: &File) -> Result<MarkdownChecks> {
                     }
 
                     if matches!(level, HeadingLevel::H1) {
-                        dbg!(level);
                         checks.toplevel_headings.push((file.clone(), range.clone()));
                     }
                 }

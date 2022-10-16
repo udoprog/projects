@@ -54,3 +54,13 @@
 [submodule "futures-cache"]
 	path = repos/futures-cache
 	url = https://github.com/udoprog/futures-cache
+[submodule "repos/async-injector"]
+	path = repos/async-injector
+	url = https://github.com/udoprog/async-injector
+[submodule "repos/uniset"]
+	path = repos/uniset
+	url = https://github.com/udoprog/uniset
+[submodule "repos/audio"]
+	path = repos/audio
+	url = https://github.com/udoprog/audio
+	cargo-toml = audio/Cargo.toml
