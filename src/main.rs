@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
-use std::ffi::OsStr;
-use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 
 use crate::actions::{Actions, ActionsCheck};
 use crate::badges::{Badge, Badges};
 use crate::file::LineColumn;
-use crate::model::{Ci, Readme, Validation};
+use crate::model::{work_cargo_toml, Ci, Readme, Validation};
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
 use http::Uri;
+use model::UpdateParams;
+use relative_path::RelativePath;
 
 mod actions;
 mod badges;
@@ -18,6 +18,9 @@ mod file;
 mod gitmodules;
 mod model;
 mod params;
+
+const DOCS_RS: &str = "https://docs.rs";
+const GITHUB_COM: &str = "https://github.com";
 
 #[derive(Default)]
 struct Opts {
@@ -63,14 +66,15 @@ fn main() -> Result<()> {
     let name = String::from("CI");
 
     let mut validation = Vec::new();
+    let root = Path::new("");
 
-    for module in modules {
+    for module in &modules {
         if !filters.is_empty() && !filters.iter().all(|filter| module.name.contains(filter)) {
             continue;
         }
 
-        let (path, url) = if let (Some(path), Some(url)) = (module.path, &module.url) {
-            (path, url)
+        let (path, url) = if let (Some(path), Some(url)) = (&module.path, &module.url) {
+            (path.to_path(root), url)
         } else {
             println!(
                 ".gitmodules: {name}: missing `path` and/or `url`",
@@ -80,7 +84,7 @@ fn main() -> Result<()> {
         };
 
         let cargo_toml = match &module.cargo_toml {
-            Some(cargo_toml) => path.join(cargo_toml),
+            Some(cargo_toml) => cargo_toml.to_path(&path),
             None => path.join("Cargo.toml"),
         };
 
@@ -90,16 +94,33 @@ fn main() -> Result<()> {
             .crate_name()
             .with_context(|| anyhow!("{path}: failed to read", path = cargo_toml.display()))?;
 
-        let lib_rs = cargo_toml.parent().unwrap_or(path).join("src/lib.rs");
+        let documentation = format!("{DOCS_RS}/{crate_name}");
+
+        let lib_rs = cargo_toml
+            .parent()
+            .as_deref()
+            .unwrap_or(&path)
+            .join("src")
+            .join("lib.rs");
 
         let params = Params {
             repo: url.path().trim_matches('/').into(),
             crate_name: crate_name.into(),
         };
 
+        let update_params = UpdateParams {
+            license: "MIT/Apache-2.0",
+            readme: "README.md",
+            repository: url,
+            homepage: url,
+            documentation: &documentation,
+        };
+
+        work_cargo_toml(&cargo_toml, &cargo, &mut validation, &update_params)?;
+
         if module.is_enabled("ci") {
             let ci = Ci::new(
-                path.join(".github/workflows"),
+                path.join(".github").join("workflows"),
                 name.clone(),
                 &uses,
                 &cargo,
@@ -257,6 +278,25 @@ fn main() -> Result<()> {
                     "{path}: missing all features build", path = path.display()
                 };
             }
+            Validation::CargoTomlIssues {
+                path,
+                cargo: modified_cargo,
+                issues,
+            } => {
+                println! {
+                    "{path}:", path = path.display()
+                };
+
+                for issue in issues {
+                    println!("  {issue}");
+                }
+
+                if opts.fix {
+                    if let Some(modified_cargo) = modified_cargo {
+                        modified_cargo.save_to(path)?;
+                    }
+                }
+            }
         }
     }
 
@@ -269,7 +309,7 @@ impl Badge for GithubBadge {
     fn build(&self, params: &Params) -> Result<String> {
         let Params { repo, .. } = params;
         let badge_repo = repo.replace('-', "--");
-        Ok(format!("[<img alt=\"github\" src=\"https://img.shields.io/badge/github-{badge_repo}-8da0cb?style=for-the-badge&logo=github\" height=\"20\">](https://github.com/{repo})"))
+        Ok(format!("[<img alt=\"github\" src=\"https://img.shields.io/badge/github-{badge_repo}-8da0cb?style=for-the-badge&logo=github\" height=\"20\">]({GITHUB_COM}/{repo})"))
     }
 }
 
@@ -289,7 +329,7 @@ impl Badge for DocsRsBadge {
         const BADGE_IMAGE: &str = "data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K";
         let Params { crate_name, .. } = params;
         let badge_crate_name = crate_name.replace('-', "--");
-        Ok(format!("[<img alt=\"docs.rs\" src=\"https://img.shields.io/badge/docs.rs-{badge_crate_name}-66c2a5?style=for-the-badge&logoColor=white&logo={BADGE_IMAGE}\" height=\"20\">](https://docs.rs/{crate_name})"))
+        Ok(format!("[<img alt=\"docs.rs\" src=\"https://img.shields.io/badge/docs.rs-{badge_crate_name}-66c2a5?style=for-the-badge&logoColor=white&logo={BADGE_IMAGE}\" height=\"20\">]({DOCS_RS}/{crate_name})"))
     }
 }
 
@@ -298,7 +338,7 @@ struct BuildStatusBadge;
 impl Badge for BuildStatusBadge {
     fn build(&self, params: &Params) -> Result<String> {
         let Params { repo, .. } = params;
-        Ok(format!("[<img alt=\"build status\" src=\"https://img.shields.io/github/workflow/status/{repo}/CI/main?style=for-the-badge\" height=\"20\">](https://github.com/{repo}/actions?query=branch%3Amain)"))
+        Ok(format!("[<img alt=\"build status\" src=\"https://img.shields.io/github/workflow/status/{repo}/CI/main?style=for-the-badge\" height=\"20\">]({GITHUB_COM}/{repo}/actions?query=branch%3Amain)"))
     }
 }
 
@@ -306,9 +346,9 @@ impl Badge for BuildStatusBadge {
 #[derive(Debug, Clone)]
 pub(crate) struct GitModule<'a> {
     name: &'a str,
-    path: Option<&'a Path>,
+    path: Option<&'a RelativePath>,
     url: Option<Uri>,
-    cargo_toml: Option<&'a Path>,
+    cargo_toml: Option<&'a RelativePath>,
     disabled: BTreeSet<&'a str>,
     workspace: bool,
 }
@@ -350,16 +390,16 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
         while let Some((key, value)) = section.next_section()? {
             match key {
                 "path" => {
-                    let os_str = OsStr::from_bytes(value);
-                    path = Some(Path::new(os_str));
+                    let string = std::str::from_utf8(value)?;
+                    path = Some(RelativePath::new(string));
                 }
                 "url" => {
                     let string = std::str::from_utf8(value)?;
                     url = Some(str::parse::<Uri>(string)?);
                 }
                 "cargo-toml" => {
-                    let os_str = OsStr::from_bytes(value);
-                    cargo_toml = Some(Path::new(os_str));
+                    let string = std::str::from_utf8(value)?;
+                    cargo_toml = Some(RelativePath::new(string));
                 }
                 "disabled" => {
                     disabled = std::str::from_utf8(value)?

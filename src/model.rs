@@ -1,5 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
+use std::fmt;
 use std::fs;
+use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -10,6 +12,39 @@ use crate::cargo::CargoToml;
 use crate::file::File;
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
+use http::Uri;
+
+pub(crate) enum CargoIssue {
+    PackageLicense,
+    PackageReadme,
+    PackageRepository,
+    PackageHomepage,
+    PackageDocumentation,
+    PackageDescription,
+    PackageCategories,
+    PackageKeywords,
+    PackageDependenciesEmpty,
+    PackageDevDependenciesEmpty,
+    PackageBuildDependenciesEmpty,
+}
+
+impl fmt::Display for CargoIssue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CargoIssue::PackageLicense => write!(f, "package.license: missing"),
+            CargoIssue::PackageReadme => write!(f, "package.readme: missing"),
+            CargoIssue::PackageRepository => write!(f, "package.repository: missing"),
+            CargoIssue::PackageHomepage => write!(f, "package.homepage: missing"),
+            CargoIssue::PackageDocumentation => write!(f, "package.documentation: missing"),
+            CargoIssue::PackageDescription => write!(f, "package.description: missing"),
+            CargoIssue::PackageCategories => write!(f, "package.categories: missing"),
+            CargoIssue::PackageKeywords => write!(f, "package.keywords: missing"),
+            CargoIssue::PackageDependenciesEmpty => write!(f, "dependencies: empty"),
+            CargoIssue::PackageDevDependenciesEmpty => write!(f, "dev-dependencies: empty"),
+            CargoIssue::PackageBuildDependenciesEmpty => write!(f, "build-dependencies: empty"),
+        }
+    }
+}
 
 pub(crate) enum Validation {
     MissingWorkflows {
@@ -81,6 +116,11 @@ pub(crate) enum Validation {
     },
     MissingAllFeatures {
         path: PathBuf,
+    },
+    CargoTomlIssues {
+        path: PathBuf,
+        cargo: Option<CargoToml>,
+        issues: Vec<CargoIssue>,
     },
 }
 
@@ -497,7 +537,11 @@ impl<'a> Readme<'a> {
                 });
             }
 
-            let readme = File::read(&self.path)?;
+            let readme = match File::read(&self.path) {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => File::new(),
+                Err(e) => return Err(e.into()),
+            };
 
             if readme != readme_from_lib_rs {
                 validation.push(Validation::BadReadme {
@@ -699,4 +743,103 @@ fn filter_code_block(comment: &str) -> (String, BTreeSet<String>) {
     }
 
     (out.iter().cloned().collect::<Vec<_>>().join(","), out)
+}
+
+/// Update parameters.
+pub(crate) struct UpdateParams<'a> {
+    pub(crate) license: &'a str,
+    pub(crate) readme: &'a str,
+    pub(crate) repository: &'a Uri,
+    pub(crate) homepage: &'a Uri,
+    pub(crate) documentation: &'a str,
+}
+
+/// Validate the main `Cargo.toml`.
+pub(crate) fn work_cargo_toml(
+    path: &Path,
+    cargo: &CargoToml,
+    validation: &mut Vec<Validation>,
+    update: &UpdateParams<'_>,
+) -> Result<()> {
+    let mut modified_cargo = cargo.clone();
+    let mut issues = Vec::new();
+    let mut changed = false;
+
+    if cargo.license()?.is_none() {
+        modified_cargo.insert_license(update.license)?;
+        changed = true;
+        issues.push(CargoIssue::PackageLicense);
+    }
+
+    if cargo.readme()?.is_none() {
+        modified_cargo.insert_readme(update.readme)?;
+        changed = true;
+        issues.push(CargoIssue::PackageReadme);
+    }
+
+    if cargo.repository()?.is_none() {
+        modified_cargo.insert_repository(&update.repository.to_string())?;
+        changed = true;
+        issues.push(CargoIssue::PackageRepository);
+    }
+
+    if cargo.homepage()?.is_none() {
+        modified_cargo.insert_homepage(&update.homepage.to_string())?;
+        changed = true;
+        issues.push(CargoIssue::PackageHomepage);
+    }
+
+    if cargo.documentation()?.is_none() {
+        modified_cargo.insert_documentation(&update.documentation)?;
+        changed = true;
+        issues.push(CargoIssue::PackageDocumentation);
+    }
+
+    if cargo.description()?.is_none() {
+        issues.push(CargoIssue::PackageDescription);
+    }
+
+    if cargo
+        .categories()?
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        issues.push(CargoIssue::PackageCategories);
+    }
+
+    if cargo
+        .keywords()?
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        issues.push(CargoIssue::PackageKeywords);
+    }
+
+    if matches!(cargo.dependencies(), Some(d) if d.is_empty()) {
+        issues.push(CargoIssue::PackageDependenciesEmpty);
+        changed = true;
+        modified_cargo.remove_dependencies();
+    }
+
+    if matches!(cargo.dev_dependencies(), Some(d) if d.is_empty()) {
+        issues.push(CargoIssue::PackageDevDependenciesEmpty);
+        changed = true;
+        modified_cargo.remove_dev_dependencies();
+    }
+
+    if matches!(cargo.build_dependencies(), Some(d) if d.is_empty()) {
+        issues.push(CargoIssue::PackageBuildDependenciesEmpty);
+        changed = true;
+        modified_cargo.remove_build_dependencies();
+    }
+
+    if !issues.is_empty() {
+        validation.push(Validation::CargoTomlIssues {
+            path: path.into(),
+            cargo: changed.then_some(modified_cargo),
+            issues,
+        });
+    }
+
+    Ok(())
 }

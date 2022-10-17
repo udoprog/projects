@@ -1,3 +1,4 @@
+use std::io;
 use std::path::Path;
 
 use anyhow::Result;
@@ -25,7 +26,7 @@ impl File {
     }
 
     /// Load a file from the given path.
-    pub(crate) fn read<P>(path: P) -> Result<Self>
+    pub(crate) fn read<P>(path: P) -> io::Result<Self>
     where
         P: AsRef<Path>,
     {

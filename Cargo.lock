@@ -136,6 +136,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "relative-path"
+version = "1.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0df32d82cedd1499386877b062ebe8721f806de80b08d183c70184ef17dd1d42"
+
+[[package]]
 name = "ryu"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -219,6 +225,7 @@ dependencies = [
  "anyhow",
  "http",
  "pulldown-cmark",
+ "relative-path",
  "serde_yaml",
  "thiserror",
  "toml",

@@ -65,3 +65,6 @@
 	url = https://github.com/udoprog/audio
 	cargo-toml = audio/Cargo.toml
     workspace = true
+[submodule "repos/markerpen"]
+	path = repos/markerpen
+	url = https://github.com/udoprog/markerpen
