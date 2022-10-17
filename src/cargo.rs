@@ -1,8 +1,9 @@
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use toml_edit::{Array, Document, Formatted, Item, Table, Value};
+use toml_edit::{Array, Document, Formatted, Item, Key, Table, Value};
 
 /// A parsed `Cargo.toml`.
 #[derive(Debug, Clone)]
@@ -57,6 +58,24 @@ impl CargoToml {
         "build-dependencies"
     );
 
+    /// Get authors.
+    pub(crate) fn authors(&self) -> Result<Option<&Array>> {
+        self.package_value("authors", Item::as_array)
+    }
+
+    /// Insert authors.
+    pub(crate) fn insert_authors(&mut self, authors: Vec<String>) -> Result<()> {
+        let package = self.package_mut()?;
+        let mut array = Array::new();
+
+        for author in authors {
+            array.push(author);
+        }
+
+        package.insert("authors", Item::Value(Value::Array(array)));
+        return Ok(());
+    }
+
     /// Get categories.
     pub(crate) fn categories(&self) -> Result<Option<&Array>> {
         self.package_value("categories", Item::as_array)
@@ -70,6 +89,16 @@ impl CargoToml {
     /// Get description.
     pub(crate) fn description(&self) -> Result<Option<&str>> {
         self.package_value("description", Item::as_str)
+    }
+
+    /// Sort package keys.
+    pub(crate) fn sort_package_keys<F>(&mut self, compare: F) -> Result<()>
+    where
+        F: FnMut(&Key, &Item, &Key, &Item) -> Ordering,
+    {
+        let package = self.package_mut()?;
+        package.sort_values_by(compare);
+        Ok(())
     }
 
     /// Save to the given path.
@@ -132,7 +161,7 @@ impl CargoToml {
     }
 
     /// Access `[package]` section.
-    fn package(&self) -> Result<&Table> {
+    pub(crate) fn package(&self) -> Result<&Table> {
         self.doc
             .get("package")
             .and_then(|table| table.as_table())

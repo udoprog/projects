@@ -12,38 +12,87 @@ use crate::cargo::CargoToml;
 use crate::file::File;
 use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
-use http::Uri;
+use toml_edit::Key;
 
-pub(crate) enum CargoIssue {
-    PackageLicense,
-    PackageReadme,
-    PackageRepository,
-    PackageHomepage,
-    PackageDocumentation,
-    PackageDescription,
-    PackageCategories,
-    PackageKeywords,
-    PackageDependenciesEmpty,
-    PackageDevDependenciesEmpty,
-    PackageBuildDependenciesEmpty,
-}
+macro_rules! cargo_issues {
+    ($f:ident, $($issue:ident $({ $($field:ident: $ty:ty),* $(,)? })? => $description:expr),* $(,)?) => {
+        pub(crate) enum CargoIssue {
+            $($issue $({$($field: $ty),*})?,)*
+        }
 
-impl fmt::Display for CargoIssue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CargoIssue::PackageLicense => write!(f, "package.license: missing"),
-            CargoIssue::PackageReadme => write!(f, "package.readme: missing"),
-            CargoIssue::PackageRepository => write!(f, "package.repository: missing"),
-            CargoIssue::PackageHomepage => write!(f, "package.homepage: missing"),
-            CargoIssue::PackageDocumentation => write!(f, "package.documentation: missing"),
-            CargoIssue::PackageDescription => write!(f, "package.description: missing"),
-            CargoIssue::PackageCategories => write!(f, "package.categories: missing"),
-            CargoIssue::PackageKeywords => write!(f, "package.keywords: missing"),
-            CargoIssue::PackageDependenciesEmpty => write!(f, "dependencies: empty"),
-            CargoIssue::PackageDevDependenciesEmpty => write!(f, "dev-dependencies: empty"),
-            CargoIssue::PackageBuildDependenciesEmpty => write!(f, "build-dependencies: empty"),
+        impl fmt::Display for CargoIssue {
+            fn fmt(&self, $f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(#[allow(unused_variables)] CargoIssue::$issue $({ $($field),* })? => $description,)*
+                }
+            }
         }
     }
+}
+
+cargo_issues! {
+    f,
+    MissingPackageLicense => write!(f, "package.license: missing"),
+    WrongPackageLicense => write!(f, "package.license: wrong"),
+    MissingPackageReadme => write!(f, "package.readme: missing"),
+    WrongPackageReadme => write!(f, "package.readme: wrong"),
+    MissingPackageRepository => write!(f, "package.repository: missing"),
+    WrongPackageRepository => write!(f, "package.repository: wrong"),
+    MissingPackageHomepage => write!(f, "package.homepage: missing"),
+    WrongPackageHomepage => write!(f, "package.homepage: wrong"),
+    MissingPackageDocumentation => write!(f, "package.documentation: missing"),
+    WrongPackageDocumentation => write!(f, "package.documentation: wrong"),
+    PackageDescription => write!(f, "package.description: missing"),
+    PackageCategories => write!(f, "package.categories: missing"),
+    PackageKeywords => write!(f, "package.keywords: missing"),
+    PackageAuthorsEmpty => write!(f, "authors: empty"),
+    PackageDependenciesEmpty => write!(f, "dependencies: empty"),
+    PackageDevDependenciesEmpty => write!(f, "dev-dependencies: empty"),
+    PackageBuildDependenciesEmpty => write!(f, "build-dependencies: empty"),
+    KeysNotSorted { expected: Vec<CargoKey>, actual: Vec<CargoKey> } => {
+        write!(f, "[package] keys out-of-order, expected: {expected:?}")
+    }
+}
+
+macro_rules! cargo_keys {
+    ($($ident:ident => $name:literal),* $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub(crate) enum CargoKey {
+            $($ident,)*
+        }
+
+        impl fmt::Display for CargoKey {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(CargoKey::$ident { .. } => write!(f, $name),)*
+                }
+            }
+        }
+
+        fn cargo_key(key: &str) -> Option<CargoKey> {
+            match key {
+                $($name => Some(CargoKey::$ident),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+// Order from: https://doc.rust-lang.org/cargo/reference/manifest.html
+cargo_keys! {
+    Name => "name",
+    Version => "version",
+    Authors => "authors",
+    Edition => "edition",
+    RustVersion => "rust-version",
+    Description => "description",
+    Documentation => "documentation",
+    Readme => "readme",
+    Homepage => "homepage",
+    Repository => "repository",
+    License => "license",
+    Keywords => "keywords",
+    Categories => "categories",
 }
 
 pub(crate) enum Validation {
@@ -749,9 +798,10 @@ fn filter_code_block(comment: &str) -> (String, BTreeSet<String>) {
 pub(crate) struct UpdateParams<'a> {
     pub(crate) license: &'a str,
     pub(crate) readme: &'a str,
-    pub(crate) repository: &'a Uri,
-    pub(crate) homepage: &'a Uri,
+    pub(crate) repository: &'a str,
+    pub(crate) homepage: &'a str,
     pub(crate) documentation: &'a str,
+    pub(crate) authors: &'a [String],
 }
 
 /// Validate the main `Cargo.toml`.
@@ -765,35 +815,58 @@ pub(crate) fn work_cargo_toml(
     let mut issues = Vec::new();
     let mut changed = false;
 
-    if cargo.license()?.is_none() {
-        modified_cargo.insert_license(update.license)?;
-        changed = true;
-        issues.push(CargoIssue::PackageLicense);
+    macro_rules! check {
+        ($get:ident, $insert:ident, $missing:ident, $wrong:ident) => {
+            match cargo.$get()? {
+                None => {
+                    modified_cargo.$insert(update.$get)?;
+                    issues.push(CargoIssue::$missing);
+                    changed = true;
+                }
+                Some(value) if value != update.$get => {
+                    modified_cargo.$insert(update.$get)?;
+                    issues.push(CargoIssue::$wrong);
+                    changed = true;
+                }
+                _ => {}
+            }
+        };
     }
 
-    if cargo.readme()?.is_none() {
-        modified_cargo.insert_readme(update.readme)?;
-        changed = true;
-        issues.push(CargoIssue::PackageReadme);
-    }
+    check! {
+        license,
+        insert_license,
+        MissingPackageLicense,
+        WrongPackageLicense
+    };
 
-    if cargo.repository()?.is_none() {
-        modified_cargo.insert_repository(&update.repository.to_string())?;
-        changed = true;
-        issues.push(CargoIssue::PackageRepository);
-    }
+    check! {
+        readme,
+        insert_readme,
+        MissingPackageReadme,
+        WrongPackageReadme
+    };
 
-    if cargo.homepage()?.is_none() {
-        modified_cargo.insert_homepage(&update.homepage.to_string())?;
-        changed = true;
-        issues.push(CargoIssue::PackageHomepage);
-    }
+    check! {
+        repository,
+        insert_repository,
+        MissingPackageRepository,
+        WrongPackageRepository
+    };
 
-    if cargo.documentation()?.is_none() {
-        modified_cargo.insert_documentation(&update.documentation)?;
-        changed = true;
-        issues.push(CargoIssue::PackageDocumentation);
-    }
+    check! {
+        homepage,
+        insert_homepage,
+        MissingPackageHomepage,
+        WrongPackageHomepage
+    };
+
+    check! {
+        documentation,
+        insert_documentation,
+        MissingPackageDocumentation,
+        WrongPackageDocumentation
+    };
 
     if cargo.description()?.is_none() {
         issues.push(CargoIssue::PackageDescription);
@@ -815,6 +888,16 @@ pub(crate) fn work_cargo_toml(
         issues.push(CargoIssue::PackageKeywords);
     }
 
+    if cargo
+        .authors()?
+        .filter(|authors| !authors.is_empty())
+        .is_none()
+    {
+        issues.push(CargoIssue::PackageAuthorsEmpty);
+        changed = true;
+        modified_cargo.insert_authors(update.authors.to_vec())?;
+    }
+
     if matches!(cargo.dependencies(), Some(d) if d.is_empty()) {
         issues.push(CargoIssue::PackageDependenciesEmpty);
         changed = true;
@@ -833,6 +916,37 @@ pub(crate) fn work_cargo_toml(
         modified_cargo.remove_build_dependencies();
     }
 
+    let package = modified_cargo.package()?;
+    let mut keys = Vec::new();
+
+    for (key, _) in package.iter() {
+        if let Some(key) = cargo_key(key) {
+            keys.push(key);
+        }
+    }
+
+    let mut sorted_keys = keys.clone();
+    sorted_keys.sort();
+
+    if keys != sorted_keys {
+        issues.push(CargoIssue::KeysNotSorted {
+            actual: keys,
+            expected: sorted_keys,
+        });
+        modified_cargo.sort_package_keys(|a, _, b, _| {
+            let a = cargo_key(a.to_string().trim())
+                .map(SortKey::CargoKey)
+                .unwrap_or(SortKey::Other(a));
+            let b = cargo_key(b.to_string().trim())
+                .map(SortKey::CargoKey)
+                .unwrap_or(SortKey::Other(b));
+            a.cmp(&b)
+        })?;
+        changed = true;
+    }
+
+    if let Some(description) = modified_cargo.description() {}
+
     if !issues.is_empty() {
         validation.push(Validation::CargoTomlIssues {
             path: path.into(),
@@ -841,5 +955,11 @@ pub(crate) fn work_cargo_toml(
         });
     }
 
-    Ok(())
+    return Ok(());
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum SortKey<'a> {
+        CargoKey(CargoKey),
+        Other(&'a Key),
+    }
 }

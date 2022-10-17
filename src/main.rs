@@ -63,7 +63,11 @@ fn main() -> Result<()> {
     let gitmodules_bytes = std::fs::read(".gitmodules")?;
     let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
 
-    let name = String::from("CI");
+    let job_name = String::from("CI");
+
+    let license = String::from("MIT/Apache-2.0");
+    let readme = String::from("README.md");
+    let authors = vec![String::from("John-John Tedro <udoprog@tedro.se>")];
 
     let mut validation = Vec::new();
     let root = Path::new("");
@@ -108,12 +112,15 @@ fn main() -> Result<()> {
             crate_name: crate_name.into(),
         };
 
+        let url_string = url.to_string();
+
         let update_params = UpdateParams {
-            license: "MIT/Apache-2.0",
-            readme: "README.md",
-            repository: url,
-            homepage: url,
+            license: &license,
+            readme: &readme,
+            repository: &url_string,
+            homepage: &url_string,
             documentation: &documentation,
+            authors: &authors,
         };
 
         work_cargo_toml(&cargo_toml, &cargo, &mut validation, &update_params)?;
@@ -121,20 +128,20 @@ fn main() -> Result<()> {
         if module.is_enabled("ci") {
             let ci = Ci::new(
                 path.join(".github").join("workflows"),
-                name.clone(),
+                job_name.clone(),
                 &uses,
                 &cargo,
                 module.workspace,
             );
             ci.validate(&mut validation)
-                .with_context(|| anyhow!("ci validation: {}", name))?;
+                .with_context(|| anyhow!("ci validation: {}", job_name))?;
         }
 
         if module.is_enabled("readme") {
             let readme = Readme::new(path.join("README.md"), lib_rs.clone(), &badges, &params);
             readme
                 .validate(&mut validation)
-                .with_context(|| anyhow!("readme validation: {}", name))?;
+                .with_context(|| anyhow!("readme validation: {}", job_name))?;
         }
     }
 
