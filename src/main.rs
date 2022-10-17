@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::actions::{Actions, ActionsCheck};
 use crate::badges::{Badge, Badges};
+use crate::config::ConfigBadge;
 use crate::file::LineColumn;
-use crate::model::{work_cargo_toml, Ci, Readme, Validation};
-use crate::params::Params;
+use crate::model::{work_cargo_toml, Ci, Readme, ReadmeParams, Validation};
 use anyhow::{anyhow, Context, Result};
 use http::Uri;
 use model::UpdateParams;
@@ -14,13 +14,15 @@ use relative_path::RelativePath;
 mod actions;
 mod badges;
 mod cargo;
+mod config;
 mod file;
 mod gitmodules;
 mod model;
-mod params;
+mod workspace;
 
 const DOCS_RS: &str = "https://docs.rs";
 const GITHUB_COM: &str = "https://github.com";
+const README_MD: &str = "README.md";
 
 #[derive(Default)]
 struct Opts {
@@ -28,6 +30,15 @@ struct Opts {
 }
 
 fn main() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .ok_or_else(|| anyhow!("missing CARGO_MANIFEST_DIR"))?,
+    );
+
+    let config_path = root.join("config.toml");
+    let config =
+        config::load(&config_path).with_context(|| config_path.to_string_lossy().into_owned())?;
+
     let mut filters = Vec::new();
     let mut opts = Opts::default();
 
@@ -50,27 +61,32 @@ fn main() -> Result<()> {
 
     let mut badges = Badges::new();
 
-    badges.push(&GithubBadge);
-    badges.push(&CratesIoBadge);
-    badges.push(&DocsRsBadge);
-    badges.push(&BuildStatusBadge);
+    for badge in &config.badges {
+        match badge {
+            ConfigBadge::Github => {
+                badges.push(&GithubBadge);
+            }
+            ConfigBadge::CratesIo => {
+                badges.push(&CratesIoBadge);
+            }
+            ConfigBadge::DocsRs => {
+                badges.push(&DocsRsBadge);
+            }
+            ConfigBadge::GithubActions => {
+                badges.push(&GithubActionsBadge);
+            }
+        }
+    }
 
     let mut uses = Actions::default();
     uses.latest("actions/checkout", "v3");
     uses.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
     uses.deny("actions-rs/cargo", "using `run` is less verbose and faster");
 
-    let gitmodules_bytes = std::fs::read(".gitmodules")?;
-    let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
-
-    let job_name = String::from("CI");
-
-    let license = String::from("MIT/Apache-2.0");
-    let readme = String::from("README.md");
-    let authors = vec![String::from("John-John Tedro <udoprog@tedro.se>")];
-
     let mut validation = Vec::new();
-    let root = Path::new("");
+
+    let gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
+    let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
 
     for module in &modules {
         if !filters.is_empty() && !filters.iter().all(|filter| module.name.contains(filter)) {
@@ -78,7 +94,7 @@ fn main() -> Result<()> {
         }
 
         let (path, url) = if let (Some(path), Some(url)) = (&module.path, &module.url) {
-            (path.to_path(root), url)
+            (path.to_path(&root), url)
         } else {
             println!(
                 ".gitmodules: {name}: missing `path` and/or `url`",
@@ -87,61 +103,81 @@ fn main() -> Result<()> {
             continue;
         };
 
+        let repo = String::from(url.path().trim_matches('/'));
+
         let cargo_toml = match &module.cargo_toml {
             Some(cargo_toml) => cargo_toml.to_path(&path),
             None => path.join("Cargo.toml"),
         };
 
-        let cargo = cargo::open(&cargo_toml)
-            .with_context(|| anyhow!("{path}: failed to read", path = cargo_toml.display()))?;
-        let crate_name = cargo
+        let workspace = workspace::open(&cargo_toml)?;
+
+        let primary_crate = module.krate.or(repo.split('/').last());
+
+        let (primary_crate_root, _, primary_crate) = match workspace.primary_crate(primary_crate)? {
+            Some(primary_crate) => primary_crate,
+            None => {
+                return Err(anyhow!(
+                    "{}: cannot determine primary crate",
+                    path.display()
+                ))
+            }
+        };
+
+        let crate_name = primary_crate
             .crate_name()
             .with_context(|| anyhow!("{path}: failed to read", path = cargo_toml.display()))?;
 
         let documentation = format!("{DOCS_RS}/{crate_name}");
 
-        let lib_rs = cargo_toml
-            .parent()
-            .as_deref()
-            .unwrap_or(&path)
-            .join("src")
-            .join("lib.rs");
-
-        let params = Params {
-            repo: url.path().trim_matches('/').into(),
-            crate_name: crate_name.into(),
-        };
-
         let url_string = url.to_string();
 
         let update_params = UpdateParams {
-            license: &license,
-            readme: &readme,
+            license: &config.license,
+            readme: README_MD,
             repository: &url_string,
             homepage: &url_string,
             documentation: &documentation,
-            authors: &authors,
+            authors: &config.authors,
         };
 
-        work_cargo_toml(&cargo_toml, &cargo, &mut validation, &update_params)?;
+        for (_, path, package) in workspace.packages() {
+            if package.is_publish()? {
+                work_cargo_toml(path, &package, &mut validation, &update_params)?;
+            }
+        }
 
         if module.is_enabled("ci") {
+            let path = path.join(".github").join("workflows");
             let ci = Ci::new(
-                path.join(".github").join("workflows"),
-                job_name.clone(),
+                &path,
+                &config.job_name,
                 &uses,
-                &cargo,
-                module.workspace,
+                &primary_crate,
+                !workspace.is_single_crate(),
             );
             ci.validate(&mut validation)
-                .with_context(|| anyhow!("ci validation: {}", job_name))?;
+                .with_context(|| anyhow!("ci validation: {}", config.job_name))?;
         }
 
         if module.is_enabled("readme") {
-            let readme = Readme::new(path.join("README.md"), lib_rs.clone(), &badges, &params);
-            readme
-                .validate(&mut validation)
-                .with_context(|| anyhow!("readme validation: {}", job_name))?;
+            build_readme(
+                &path,
+                &primary_crate_root,
+                &repo,
+                crate_name,
+                &badges,
+                &mut validation,
+            )?;
+
+            for (root, _, package) in workspace.packages() {
+                if root != path {
+                    if package.is_publish()? {
+                        let crate_name = package.crate_name()?;
+                        build_readme(&root, &root, &repo, crate_name, &badges, &mut validation)?;
+                    }
+                }
+            }
         }
     }
 
@@ -168,6 +204,8 @@ fn main() -> Result<()> {
                             from = from.display()
                         );
                         std::fs::rename(from, path)?;
+                    } else {
+                        std::fs::write(path, &config.default_workflow)?;
                     }
                 }
             }
@@ -310,11 +348,34 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Perform readme validation.
+fn build_readme(
+    readme_path: &Path,
+    crate_path: &Path,
+    repo: &str,
+    crate_name: &str,
+    badges: &Badges,
+    validation: &mut Vec<Validation>,
+) -> Result<()> {
+    let params = ReadmeParams { repo, crate_name };
+    let readme_path = readme_path.join(README_MD);
+
+    let lib_rs = crate_path.join("src").join("lib.rs");
+
+    let readme = Readme::new(&readme_path, &lib_rs, badges, &params);
+
+    readme
+        .validate(validation)
+        .with_context(|| anyhow!("{path}: readme validation", path = readme_path.display()))?;
+
+    Ok(())
+}
+
 struct GithubBadge;
 
 impl Badge for GithubBadge {
-    fn build(&self, params: &Params) -> Result<String> {
-        let Params { repo, .. } = params;
+    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
+        let ReadmeParams { repo, .. } = params;
         let badge_repo = repo.replace('-', "--");
         Ok(format!("[<img alt=\"github\" src=\"https://img.shields.io/badge/github-{badge_repo}-8da0cb?style=for-the-badge&logo=github\" height=\"20\">]({GITHUB_COM}/{repo})"))
     }
@@ -323,8 +384,8 @@ impl Badge for GithubBadge {
 struct CratesIoBadge;
 
 impl Badge for CratesIoBadge {
-    fn build(&self, params: &Params) -> Result<String> {
-        let Params { crate_name, .. } = params;
+    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
+        let ReadmeParams { crate_name, .. } = params;
         Ok(format!("[<img alt=\"crates.io\" src=\"https://img.shields.io/crates/v/{crate_name}.svg?style=for-the-badge&color=fc8d62&logo=rust\" height=\"20\">](https://crates.io/crates/{crate_name})"))
     }
 }
@@ -332,19 +393,19 @@ impl Badge for CratesIoBadge {
 struct DocsRsBadge;
 
 impl Badge for DocsRsBadge {
-    fn build(&self, params: &Params) -> Result<String> {
+    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
         const BADGE_IMAGE: &str = "data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K";
-        let Params { crate_name, .. } = params;
+        let ReadmeParams { crate_name, .. } = params;
         let badge_crate_name = crate_name.replace('-', "--");
         Ok(format!("[<img alt=\"docs.rs\" src=\"https://img.shields.io/badge/docs.rs-{badge_crate_name}-66c2a5?style=for-the-badge&logoColor=white&logo={BADGE_IMAGE}\" height=\"20\">]({DOCS_RS}/{crate_name})"))
     }
 }
 
-struct BuildStatusBadge;
+struct GithubActionsBadge;
 
-impl Badge for BuildStatusBadge {
-    fn build(&self, params: &Params) -> Result<String> {
-        let Params { repo, .. } = params;
+impl Badge for GithubActionsBadge {
+    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
+        let ReadmeParams { repo, .. } = params;
         Ok(format!("[<img alt=\"build status\" src=\"https://img.shields.io/github/workflow/status/{repo}/CI/main?style=for-the-badge\" height=\"20\">]({GITHUB_COM}/{repo}/actions?query=branch%3Amain)"))
     }
 }
@@ -356,8 +417,8 @@ pub(crate) struct GitModule<'a> {
     path: Option<&'a RelativePath>,
     url: Option<Uri>,
     cargo_toml: Option<&'a RelativePath>,
+    krate: Option<&'a str>,
     disabled: BTreeSet<&'a str>,
-    workspace: bool,
 }
 
 impl GitModule<'_> {
@@ -385,9 +446,9 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
     ) -> Result<Option<GitModule<'a>>> {
         let mut path = None;
         let mut url = None;
-        let mut cargo_toml = None;
         let mut disabled = BTreeSet::new();
-        let mut workspace = false;
+        let mut cargo_toml = None;
+        let mut krate = None;
 
         let mut section = match parser.parse_section()? {
             Some(section) => section,
@@ -408,14 +469,14 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
                     let string = std::str::from_utf8(value)?;
                     cargo_toml = Some(RelativePath::new(string));
                 }
+                "crate" => {
+                    krate = Some(std::str::from_utf8(value)?);
+                }
                 "disabled" => {
                     disabled = std::str::from_utf8(value)?
                         .split(',')
                         .map(str::trim)
                         .collect();
-                }
-                "workspace" => {
-                    workspace = value == b"true";
                 }
                 _ => {}
             }
@@ -426,8 +487,8 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
             path,
             url,
             cargo_toml,
+            krate,
             disabled,
-            workspace,
         }))
     }
 }

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
+use relative_path::RelativePath;
 use toml_edit::{Array, Document, Formatted, Item, Key, Table, Value};
 
 /// A parsed `Cargo.toml`.
@@ -40,7 +41,44 @@ macro_rules! dependencies {
     };
 }
 
+/// A cargo workspace.
+pub(crate) struct CargoWorkspace<'a> {
+    table: &'a Table,
+}
+
+impl<'a> CargoWorkspace<'a> {
+    /// Get list of members.
+    pub(crate) fn members(&self) -> impl Iterator<Item = &'a RelativePath> {
+        let members = self.table.get("members").and_then(|v| v.as_array());
+        members
+            .into_iter()
+            .flatten()
+            .flat_map(|v| Some(RelativePath::new(v.as_str()?)))
+    }
+}
+
 impl CargoToml {
+    /// Test if toml defines a package.
+    pub(crate) fn is_package(&self) -> bool {
+        self.doc.contains_key("package")
+    }
+
+    /// Test if package should or should not be published.
+    pub(crate) fn is_publish(&self) -> Result<bool> {
+        Ok(self
+            .package()?
+            .get("publish")
+            .and_then(Item::as_bool)
+            .unwrap_or(true))
+    }
+
+    /// Get workspace configuration.
+    pub(crate) fn workspace(&self) -> Option<CargoWorkspace<'_>> {
+        let table = self.doc.get("workspace")?.as_table()?;
+
+        Some(CargoWorkspace { table })
+    }
+
     field!(license, insert_license, "license");
     field!(readme, insert_readme, "readme");
     field!(repository, insert_repository, "repository");
@@ -186,7 +224,10 @@ impl CargoToml {
 }
 
 /// Open a `Cargo.toml`.
-pub(crate) fn open(path: &Path) -> Result<CargoToml> {
+pub(crate) fn open<P>(path: P) -> Result<CargoToml>
+where
+    P: AsRef<Path>,
+{
     let input = std::fs::read_to_string(path)?;
     let doc = input.parse()?;
     Ok(CargoToml { doc })

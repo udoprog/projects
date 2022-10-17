@@ -10,7 +10,6 @@ use crate::actions::Actions;
 use crate::badges::Badges;
 use crate::cargo::CargoToml;
 use crate::file::File;
-use crate::params::Params;
 use anyhow::{anyhow, Context, Result};
 use toml_edit::Key;
 
@@ -174,8 +173,8 @@ pub(crate) enum Validation {
 }
 
 pub(crate) struct Ci<'a> {
-    pub(crate) path: PathBuf,
-    pub(crate) name: String,
+    path: &'a Path,
+    name: &'a str,
     actions: &'a Actions<'a>,
     cargo: &'a CargoToml,
     workspace: bool,
@@ -184,8 +183,8 @@ pub(crate) struct Ci<'a> {
 impl<'a> Ci<'a> {
     /// Construct a new CI config.
     pub(crate) fn new(
-        path: PathBuf,
-        name: String,
+        path: &'a Path,
+        name: &'a str,
         actions: &'a Actions<'a>,
         cargo: &'a CargoToml,
         workspace: bool,
@@ -216,7 +215,7 @@ impl<'a> Ci<'a> {
     pub(crate) fn validate(&self, validation: &mut Vec<Validation>) -> Result<()> {
         if !self.path.is_dir() {
             validation.push(Validation::MissingWorkflows {
-                path: self.path.clone(),
+                path: self.path.to_owned(),
             });
 
             return Ok(());
@@ -267,7 +266,7 @@ impl<'a> Ci<'a> {
             validation.push(Validation::WrongWorkflowName {
                 path: path.clone(),
                 actual: name.to_owned(),
-                expected: self.name.clone(),
+                expected: self.name.to_owned(),
             });
         }
 
@@ -523,20 +522,27 @@ enum RunIdentity {
     None,
 }
 
+/// Badge building parameters.
+#[derive(Debug, Clone)]
+pub(crate) struct ReadmeParams<'a> {
+    pub(crate) repo: &'a str,
+    pub(crate) crate_name: &'a str,
+}
+
 pub(crate) struct Readme<'a> {
-    pub(crate) path: PathBuf,
-    pub(crate) lib_rs: PathBuf,
+    pub(crate) path: &'a Path,
+    pub(crate) lib_rs: &'a Path,
     pub(crate) badges: &'a Badges<'a>,
-    pub(crate) params: &'a Params,
+    pub(crate) params: &'a ReadmeParams<'a>,
 }
 
 impl<'a> Readme<'a> {
     /// Construct a new README config.
     pub(crate) fn new(
-        path: PathBuf,
-        lib_rs: PathBuf,
+        path: &'a Path,
+        lib_rs: &'a Path,
         badges: &'a Badges<'a>,
-        params: &'a Params,
+        params: &'a ReadmeParams<'a>,
     ) -> Self {
         Self {
             path,
@@ -550,7 +556,7 @@ impl<'a> Readme<'a> {
     pub(crate) fn validate(&self, validation: &mut Vec<Validation>) -> Result<()> {
         if !self.path.is_file() {
             validation.push(Validation::MissingReadme {
-                path: self.path.clone(),
+                path: self.path.to_owned(),
             });
         }
 
@@ -561,7 +567,7 @@ impl<'a> Readme<'a> {
 
             for (file, range) in checks.toplevel_headings {
                 validation.push(Validation::ToplevelHeadings {
-                    path: self.lib_rs.clone(),
+                    path: self.lib_rs.to_owned(),
                     file,
                     range,
                     line_offset: checks.line_offset,
@@ -570,7 +576,7 @@ impl<'a> Readme<'a> {
 
             for (file, range) in checks.missing_preceeding_br {
                 validation.push(Validation::MissingPreceedingBr {
-                    path: self.lib_rs.clone(),
+                    path: self.lib_rs.to_owned(),
                     file,
                     range,
                     line_offset: checks.line_offset,
@@ -581,7 +587,7 @@ impl<'a> Readme<'a> {
 
             if *file != *new_file {
                 validation.push(Validation::MismatchedLibRs {
-                    path: self.lib_rs.clone(),
+                    path: self.lib_rs.to_owned(),
                     new_file: new_file.clone(),
                 });
             }
@@ -594,7 +600,7 @@ impl<'a> Readme<'a> {
 
             if readme != readme_from_lib_rs {
                 validation.push(Validation::BadReadme {
-                    path: self.path.clone(),
+                    path: self.path.to_owned(),
                     new_file: Rc::new(readme_from_lib_rs),
                 });
             }
@@ -721,7 +727,7 @@ fn markdown_checks(file: &File) -> Result<MarkdownChecks> {
 }
 
 /// Generate a readme.
-fn readme_from_lib_rs(file: &File, params: &Params) -> Result<File> {
+fn readme_from_lib_rs(file: &File, params: &ReadmeParams<'_>) -> Result<File> {
     let mut readme = File::new();
 
     let mut in_code_block = None::<bool>;
@@ -944,8 +950,6 @@ pub(crate) fn work_cargo_toml(
         })?;
         changed = true;
     }
-
-    if let Some(description) = modified_cargo.description() {}
 
     if !issues.is_empty() {
         validation.push(Validation::CargoTomlIssues {
