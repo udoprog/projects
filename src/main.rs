@@ -3,6 +3,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
+use clap::{Parser, Subcommand};
+use config::Config;
 use model::UpdateParams;
 use relative_path::RelativePath;
 use url::Url;
@@ -28,37 +30,157 @@ const DOCS_RS: &str = "https://docs.rs";
 const GITHUB_COM: &str = "https://github.com";
 const README_MD: &str = "README.md";
 
-argwerk::define! {
-    #[derive(Default)]
-    #[usage = "tool [-h]"]
-    struct Opts {
-        help: bool,
-        fix: bool,
-        url_checks: bool,
-        filters: Vec<String>,
-    }
-    /// Show this help.
-    ["-h" | "--help"] => {
-        println!("{}", Opts::help());
-        help = true;
-    }
-    /// Fix any issues with projects.
-    ["--fix"] => {
-        fix = true;
-    }
-    /// Perform URL checks.
-    ["--url-checks"] => {
-        url_checks = true;
-    }
-    /// Filter which project to apply changes to.
-    [filter] => {
-        filters.push(filter);
+#[derive(Default, Parser)]
+struct Run {
+    #[arg(long)]
+    fix: bool,
+    #[arg(long)]
+    url_checks: bool,
+    filters: Vec<String>,
+}
+
+#[derive(Subcommand)]
+enum Action {
+    Run(Run),
+}
+
+#[derive(Default, Parser)]
+struct Opts {
+    #[command(subcommand)]
+    action: Action,
+}
+
+impl Default for Action {
+    fn default() -> Self {
+        Self::Run(Run::default())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     entry().await
+}
+
+struct Ctxt<'a> {
+    root: &'a Path,
+    config: &'a Config,
+    badges: &'a Badges<'a>,
+    actions: &'a Actions<'a>,
+}
+
+/// Run a single module.
+fn run_module(
+    cx: &Ctxt<'_>,
+    run: &Run,
+    module: &Module<'_>,
+    validation: &mut Vec<Validation>,
+    urls: &mut Urls,
+) -> Result<()> {
+    if !run.filters.is_empty()
+        && !run
+            .filters
+            .iter()
+            .all(|filter| module.name.contains(filter))
+    {
+        return Ok(());
+    }
+
+    let (module_path, module_url) = if let (Some(path), Some(url)) = (module.path, &module.url) {
+        (path, url)
+    } else {
+        println!(
+            ".gitmodules: {name}: missing `path` and/or `url`",
+            name = module.name
+        );
+        return Ok(());
+    };
+
+    let repo = String::from(module_url.path().trim_matches('/'));
+
+    let cargo_toml = match module.cargo_toml {
+        Some(cargo_toml) => module_path.join(cargo_toml),
+        None => module_path.join(workspace::CARGO_TOML),
+    };
+
+    let workspace = workspace::open(cx.root, &cargo_toml)?;
+
+    let primary_crate = module.krate.or(repo.split('/').last());
+
+    let primary_crate = match workspace.primary_crate(primary_crate)? {
+        Some(primary_crate) => primary_crate,
+        None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
+    };
+
+    let crate_name = primary_crate
+        .manifest
+        .crate_name()
+        .with_context(|| anyhow!("{cargo_toml}: failed to read"))?;
+
+    let documentation = format!("{DOCS_RS}/{crate_name}");
+
+    let url_string = module_url.to_string();
+
+    let update_params = UpdateParams {
+        license: &cx.config.license,
+        readme: README_MD,
+        repository: &url_string,
+        homepage: &url_string,
+        documentation: &documentation,
+        authors: &cx.config.authors,
+    };
+
+    for package in workspace.packages() {
+        if package.manifest.is_publish()? {
+            work_cargo_toml(package, validation, &update_params)?;
+        }
+    }
+
+    if module.is_enabled("ci") {
+        let path = module_path
+            .join(".github")
+            .join("workflows")
+            .to_path(cx.root);
+        let ci = Ci::new(
+            &path,
+            &cx.config.job_name,
+            cx.actions,
+            &primary_crate.manifest,
+            !workspace.is_single_crate(),
+        );
+        ci.validate(validation)
+            .with_context(|| anyhow!("ci validation: {}", cx.config.job_name))?;
+    }
+
+    if module.is_enabled("readme") {
+        build_readme(
+            &cx,
+            module_path,
+            &primary_crate.manifest_dir,
+            &repo,
+            crate_name,
+            validation,
+            urls,
+        )?;
+
+        for package in workspace.packages() {
+            if package.manifest_dir != module_path {
+                if package.manifest.is_publish()? {
+                    let crate_name = package.manifest.crate_name()?;
+                    build_readme(
+                        cx,
+                        &package.manifest_dir,
+                        &package.manifest_dir,
+                        &repo,
+                        crate_name,
+                        validation,
+                        urls,
+                    )?;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn entry() -> Result<()> {
@@ -71,11 +193,7 @@ async fn entry() -> Result<()> {
     let config =
         config::load(&config_path).with_context(|| config_path.to_string_lossy().into_owned())?;
 
-    let opts = Opts::args()?;
-
-    if opts.help {
-        return Ok(());
-    }
+    let opts = Opts::try_parse()?;
 
     let mut badges = Badges::new();
 
@@ -96,289 +214,221 @@ async fn entry() -> Result<()> {
         }
     }
 
-    let mut uses = Actions::default();
-    uses.latest("actions/checkout", "v3");
-    uses.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
-    uses.deny("actions-rs/cargo", "using `run` is less verbose and faster");
+    let mut actions = Actions::default();
+    actions.latest("actions/checkout", "v3");
+    actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
+    actions.deny("actions-rs/cargo", "using `run` is less verbose and faster");
 
-    let mut validation = Vec::new();
+    let cx = Ctxt {
+        root: &root,
+        config: &config,
+        badges: &badges,
+        actions: &actions,
+    };
 
-    let gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
-    let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
+    match &opts.action {
+        Action::Run(run) => {
+            let gitmodules_path = root.join(".gitmodules");
+            let gitmodules_bytes;
+            let mut modules = Vec::new();
 
-    let mut urls = Urls::default();
+            if gitmodules_path.is_file() {
+                gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
 
-    for module in &modules {
-        if !opts.filters.is_empty()
-            && !opts
-                .filters
-                .iter()
-                .all(|filter| module.name.contains(filter))
-        {
-            continue;
-        }
-
-        let (module_path, module_url) = if let (Some(path), Some(url)) = (module.path, &module.url)
-        {
-            (path, url)
-        } else {
-            println!(
-                ".gitmodules: {name}: missing `path` and/or `url`",
-                name = module.name
-            );
-            continue;
-        };
-
-        let repo = String::from(module_url.path().trim_matches('/'));
-
-        let cargo_toml = match module.cargo_toml {
-            Some(cargo_toml) => module_path.join(cargo_toml),
-            None => module_path.join(workspace::CARGO_TOML),
-        };
-
-        let workspace = workspace::open(&root, &cargo_toml)?;
-
-        let primary_crate = module.krate.or(repo.split('/').last());
-
-        let primary_crate = match workspace.primary_crate(primary_crate)? {
-            Some(primary_crate) => primary_crate,
-            None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
-        };
-
-        let crate_name = primary_crate
-            .manifest
-            .crate_name()
-            .with_context(|| anyhow!("{cargo_toml}: failed to read"))?;
-
-        let documentation = format!("{DOCS_RS}/{crate_name}");
-
-        let url_string = module_url.to_string();
-
-        let update_params = UpdateParams {
-            license: &config.license,
-            readme: README_MD,
-            repository: &url_string,
-            homepage: &url_string,
-            documentation: &documentation,
-            authors: &config.authors,
-        };
-
-        for package in workspace.packages() {
-            if package.manifest.is_publish()? {
-                work_cargo_toml(package, &mut validation, &update_params)?;
+                modules.extend(
+                    parse_git_modules(&gitmodules_bytes)
+                        .with_context(|| anyhow!("{}", gitmodules_path.display()))?,
+                );
+            } else {
+                modules.push(Module {
+                    name: "current",
+                    path: Some(RelativePath::new(".")),
+                    url: None,
+                    cargo_toml: None,
+                    krate: None,
+                    disabled: Default::default(),
+                });
             }
-        }
 
-        if module.is_enabled("ci") {
-            let path = module_path.join(".github").join("workflows").to_path(&root);
-            let ci = Ci::new(
-                &path,
-                &config.job_name,
-                &uses,
-                &primary_crate.manifest,
-                !workspace.is_single_crate(),
-            );
-            ci.validate(&mut validation)
-                .with_context(|| anyhow!("ci validation: {}", config.job_name))?;
-        }
+            let mut validation = Vec::new();
+            let mut urls = Urls::default();
 
-        if module.is_enabled("readme") {
-            build_readme(
-                &root,
-                module_path,
-                &primary_crate.manifest_dir,
-                &repo,
-                crate_name,
-                &badges,
-                &mut validation,
-                &mut urls,
-            )?;
+            for module in &modules {
+                run_module(&cx, run, module, &mut validation, &mut urls)?;
+            }
 
-            for package in workspace.packages() {
-                if package.manifest_dir != module_path {
-                    if package.manifest.is_publish()? {
-                        let crate_name = package.manifest.crate_name()?;
-                        build_readme(
-                            &root,
-                            &package.manifest_dir,
-                            &package.manifest_dir,
-                            &repo,
-                            crate_name,
-                            &badges,
-                            &mut validation,
-                            &mut urls,
-                        )?;
-                    }
-                }
+            for validation in &validation {
+                validate(&cx, run, validation)?;
             }
-        }
-    }
 
-    for error in &validation {
-        match error {
-            Validation::MissingWorkflows { path } => {
-                println!("{path}: Missing workflows directory", path = path.display());
-            }
-            Validation::MissingWorkflow { path, candidates } => {
-                println!("{path}: Missing workflow", path = path.display());
+            let o = std::io::stdout();
+            let mut o = o.lock();
 
-                for candidate in candidates.iter() {
-                    println! {
-                        "  Candidate: {candidate}",
-                        candidate = candidate.display()
-                    };
-                }
+            for (url, test) in urls.bad_urls() {
+                let path = &test.path;
+                let (line, column, string) =
+                    temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
 
-                if opts.fix {
-                    if let [from] = candidates.as_ref() {
-                        println!(
-                            "{path}: Rename from {from}",
-                            path = path.display(),
-                            from = from.display()
-                        );
-                        std::fs::rename(from, path)?;
-                    } else {
-                        std::fs::write(path, &config.default_workflow)?;
-                    }
-                }
-            }
-            Validation::DeprecatedWorkflow { path } => {
-                println!("{path}: Reprecated Workflow", path = path.display());
-            }
-            Validation::WrongWorkflowName {
-                path,
-                actual,
-                expected,
-            } => {
-                println! {
-                    "{path}: Wrong workflow name: {actual} (actual) != {expected} (expected)",
-                    path = path.display()
-                };
-            }
-            Validation::OutdatedAction {
-                path,
-                name,
-                actual,
-                expected,
-            } => {
-                println! {
-                    "{path}: Outdated action `{name}`: {actual} (actual) != {expected} (expected)",
-                    path = path.display()
-                };
-            }
-            Validation::DeniedAction { path, name, reason } => {
-                println! {
-                    "{path}: Denied action `{name}`: {reason}",
-                    path = path.display()
-                };
-            }
-            Validation::CustomActionsCheck { path, name, reason } => {
-                println! {
-                    "{path}: Action validation failed `{name}`: {reason}",
-                    path = path.display()
-                };
-            }
-            Validation::MissingReadme { path } => {
-                println!("{path}: Missing README");
-            }
-            Validation::MismatchedLibRs { path, new_file } => {
-                if opts.fix {
-                    println!("{path}: Fixing lib.rs");
-                    std::fs::write(path.to_path(&root), new_file.as_bytes())?;
+                if let Some(error) = &test.error {
+                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`: {error}")?;
                 } else {
-                    println!("{path}: Mismatched lib.rs");
-                }
-            }
-            Validation::BadReadme { path, new_file } => {
-                if opts.fix {
-                    println!("{path}: Fixing README.md");
-                    std::fs::write(path.to_path(&root), new_file.as_bytes())?;
-                } else {
-                    println!("{path}: Bad README.md");
-                }
-            }
-            Validation::ToplevelHeadings {
-                path,
-                file,
-                range,
-                line_offset,
-            } => {
-                let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
-                println!("{path}:{line}:{column}: doc comment has toplevel headings");
-                println!("{string}");
-            }
-            Validation::MissingPreceedingBr {
-                path,
-                file,
-                range,
-                line_offset,
-            } => {
-                let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
-                println!("{path}:{line}:{column}: missing preceeding <br>");
-                println!("{string}");
-            }
-            Validation::MissingFeature { path, feature } => {
-                println! {
-                    "{path}: missing features `{feature}`", path = path.display()
-                };
-            }
-            Validation::NoFeatures { path } => {
-                println! {
-                    "{path}: trying featured build (--all-features, --no-default-features), but no features present", path = path.display()
-                };
-            }
-            Validation::MissingEmptyFeatures { path } => {
-                println! {
-                    "{path}: missing empty features build", path = path.display()
-                };
-            }
-            Validation::MissingAllFeatures { path } => {
-                println! {
-                    "{path}: missing all features build", path = path.display()
-                };
-            }
-            Validation::CargoTomlIssues {
-                path,
-                cargo: modified_cargo,
-                issues,
-            } => {
-                println!("{path}:");
-
-                for issue in issues {
-                    println!("  {issue}");
+                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`")?;
                 }
 
-                if opts.fix {
-                    if let Some(modified_cargo) = modified_cargo {
-                        modified_cargo.save_to(path.to_path(&root))?;
-                    }
-                }
+                writeln!(o, "{string}")?;
+            }
+
+            if run.url_checks {
+                url_checks(&mut o, urls).await?;
             }
         }
-    }
-
-    let o = std::io::stdout();
-    let mut o = o.lock();
-
-    for (url, test) in urls.bad_urls() {
-        let path = &test.path;
-        let (line, column, string) =
-            temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
-
-        if let Some(error) = &test.error {
-            writeln!(o, "{path}:{line}:{column}: bad url: `{url}`: {error}")?;
-        } else {
-            writeln!(o, "{path}:{line}:{column}: bad url: `{url}`")?;
-        }
-
-        writeln!(o, "{string}")?;
-    }
-
-    if opts.url_checks {
-        url_checks(&mut o, urls).await?;
     }
 
     Ok(())
+}
+
+/// Report and apply a asingle validation.
+fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
+    Ok(match error {
+        Validation::MissingWorkflows { path } => {
+            println!("{path}: Missing workflows directory", path = path.display());
+        }
+        Validation::MissingWorkflow { path, candidates } => {
+            println!("{path}: Missing workflow", path = path.display());
+
+            for candidate in candidates.iter() {
+                println! {
+                    "  Candidate: {candidate}",
+                    candidate = candidate.display()
+                };
+            }
+
+            if run.fix {
+                if let [from] = candidates.as_ref() {
+                    println!(
+                        "{path}: Rename from {from}",
+                        path = path.display(),
+                        from = from.display()
+                    );
+                    std::fs::rename(from, path)?;
+                } else {
+                    std::fs::write(path, &cx.config.default_workflow)?;
+                }
+            }
+        }
+        Validation::DeprecatedWorkflow { path } => {
+            println!("{path}: Reprecated Workflow", path = path.display());
+        }
+        Validation::WrongWorkflowName {
+            path,
+            actual,
+            expected,
+        } => {
+            println! {
+                "{path}: Wrong workflow name: {actual} (actual) != {expected} (expected)",
+                path = path.display()
+            };
+        }
+        Validation::OutdatedAction {
+            path,
+            name,
+            actual,
+            expected,
+        } => {
+            println! {
+                "{path}: Outdated action `{name}`: {actual} (actual) != {expected} (expected)",
+                path = path.display()
+            };
+        }
+        Validation::DeniedAction { path, name, reason } => {
+            println! {
+                "{path}: Denied action `{name}`: {reason}",
+                path = path.display()
+            };
+        }
+        Validation::CustomActionsCheck { path, name, reason } => {
+            println! {
+                "{path}: Action validation failed `{name}`: {reason}",
+                path = path.display()
+            };
+        }
+        Validation::MissingReadme { path } => {
+            println!("{path}: Missing README");
+        }
+        Validation::MismatchedLibRs { path, new_file } => {
+            if run.fix {
+                println!("{path}: Fixing lib.rs");
+                std::fs::write(path.to_path(cx.root), new_file.as_bytes())?;
+            } else {
+                println!("{path}: Mismatched lib.rs");
+            }
+        }
+        Validation::BadReadme { path, new_file } => {
+            if run.fix {
+                println!("{path}: Fixing README.md");
+                std::fs::write(path.to_path(cx.root), new_file.as_bytes())?;
+            } else {
+                println!("{path}: Bad README.md");
+            }
+        }
+        Validation::ToplevelHeadings {
+            path,
+            file,
+            range,
+            line_offset,
+        } => {
+            let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
+            println!("{path}:{line}:{column}: doc comment has toplevel headings");
+            println!("{string}");
+        }
+        Validation::MissingPreceedingBr {
+            path,
+            file,
+            range,
+            line_offset,
+        } => {
+            let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
+            println!("{path}:{line}:{column}: missing preceeding <br>");
+            println!("{string}");
+        }
+        Validation::MissingFeature { path, feature } => {
+            println! {
+                "{path}: missing features `{feature}`", path = path.display()
+            };
+        }
+        Validation::NoFeatures { path } => {
+            println! {
+                "{path}: trying featured build (--all-features, --no-default-features), but no features present", path = path.display()
+            };
+        }
+        Validation::MissingEmptyFeatures { path } => {
+            println! {
+                "{path}: missing empty features build", path = path.display()
+            };
+        }
+        Validation::MissingAllFeatures { path } => {
+            println! {
+                "{path}: missing all features build", path = path.display()
+            };
+        }
+        Validation::CargoTomlIssues {
+            path,
+            cargo: modified_cargo,
+            issues,
+        } => {
+            println!("{path}:");
+
+            for issue in issues {
+                println!("  {issue}");
+            }
+
+            if run.fix {
+                if let Some(modified_cargo) = modified_cargo {
+                    modified_cargo.save_to(path.to_path(cx.root))?;
+                }
+            }
+        }
+    })
 }
 
 /// Perform url checks.
@@ -437,12 +487,11 @@ fn temporary_line_fix(file: &File, pos: usize, line_offset: usize) -> Result<(us
 
 /// Perform readme validation.
 fn build_readme(
-    root: &Path,
+    cx: &Ctxt<'_>,
     readme_path: &RelativePath,
     crate_path: &RelativePath,
     repo: &str,
     crate_name: &str,
-    badges: &Badges,
     validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
@@ -450,10 +499,10 @@ fn build_readme(
     let readme_path = readme_path.join(README_MD);
     let lib_rs = crate_path.join("src").join("lib.rs");
 
-    let readme = Readme::new(&readme_path, &lib_rs, badges, &params);
+    let readme = Readme::new(&readme_path, &lib_rs, cx.badges, &params);
 
     readme
-        .validate(root, validation, urls)
+        .validate(cx.root, validation, urls)
         .with_context(|| anyhow!("{readme_path}: readme validation"))?;
 
     Ok(())
@@ -500,7 +549,7 @@ impl Badge for GithubActionsBadge {
 
 /// A git module.
 #[derive(Debug, Clone)]
-pub(crate) struct GitModule<'a> {
+pub(crate) struct Module<'a> {
     name: &'a str,
     path: Option<&'a RelativePath>,
     url: Option<Url>,
@@ -509,7 +558,7 @@ pub(crate) struct GitModule<'a> {
     disabled: BTreeSet<&'a str>,
 }
 
-impl GitModule<'_> {
+impl Module<'_> {
     /// Test if a feature is disabled.
     fn is_enabled(&self, feature: &str) -> bool {
         !self.disabled.contains(feature)
@@ -517,7 +566,7 @@ impl GitModule<'_> {
 }
 
 /// Parse gitmodules from the given input.
-pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
+pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<Module<'_>>> {
     let mut parser = gitmodules::Parser::new(input);
 
     let mut modules = Vec::new();
@@ -531,7 +580,7 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
     /// Parse a git module.
     pub(crate) fn parse_git_module<'a>(
         parser: &mut gitmodules::Parser<'a>,
-    ) -> Result<Option<GitModule<'a>>> {
+    ) -> Result<Option<Module<'a>>> {
         let mut path = None;
         let mut url = None;
         let mut disabled = BTreeSet::new();
@@ -570,7 +619,7 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
             }
         }
 
-        Ok(Some(GitModule {
+        Ok(Some(Module {
             name: section.name(),
             path,
             url,
