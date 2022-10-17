@@ -6,12 +6,15 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use anyhow::{anyhow, Context, Result};
+use relative_path::RelativePathBuf;
+use toml_edit::Key;
+
 use crate::actions::Actions;
 use crate::badges::Badges;
-use crate::cargo::CargoToml;
+use crate::cargo::Manifest;
 use crate::file::File;
-use anyhow::{anyhow, Context, Result};
-use toml_edit::Key;
+use crate::workspace::Package;
 
 macro_rules! cargo_issues {
     ($f:ident, $($issue:ident $({ $($field:ident: $ty:ty),* $(,)? })? => $description:expr),* $(,)?) => {
@@ -166,8 +169,8 @@ pub(crate) enum Validation {
         path: PathBuf,
     },
     CargoTomlIssues {
-        path: PathBuf,
-        cargo: Option<CargoToml>,
+        path: RelativePathBuf,
+        cargo: Option<Manifest>,
         issues: Vec<CargoIssue>,
     },
 }
@@ -176,7 +179,7 @@ pub(crate) struct Ci<'a> {
     path: &'a Path,
     name: &'a str,
     actions: &'a Actions<'a>,
-    cargo: &'a CargoToml,
+    manifest: &'a Manifest,
     workspace: bool,
 }
 
@@ -186,14 +189,14 @@ impl<'a> Ci<'a> {
         path: &'a Path,
         name: &'a str,
         actions: &'a Actions<'a>,
-        cargo: &'a CargoToml,
+        manifest: &'a Manifest,
         workspace: bool,
     ) -> Self {
         Self {
             path,
             name,
             actions,
-            cargo,
+            manifest,
             workspace,
         }
     }
@@ -340,7 +343,7 @@ impl<'a> Ci<'a> {
         validation: &mut Vec<Validation>,
     ) {
         let mut cargo_combos = Vec::new();
-        let features = self.cargo.features();
+        let features = self.manifest.features();
 
         for step in job
             .get("steps")
@@ -812,25 +815,24 @@ pub(crate) struct UpdateParams<'a> {
 
 /// Validate the main `Cargo.toml`.
 pub(crate) fn work_cargo_toml(
-    path: &Path,
-    cargo: &CargoToml,
+    package: &Package,
     validation: &mut Vec<Validation>,
     update: &UpdateParams<'_>,
 ) -> Result<()> {
-    let mut modified_cargo = cargo.clone();
+    let mut modified_manifest = package.manifest.clone();
     let mut issues = Vec::new();
     let mut changed = false;
 
     macro_rules! check {
         ($get:ident, $insert:ident, $missing:ident, $wrong:ident) => {
-            match cargo.$get()? {
+            match package.manifest.$get()? {
                 None => {
-                    modified_cargo.$insert(update.$get)?;
+                    modified_manifest.$insert(update.$get)?;
                     issues.push(CargoIssue::$missing);
                     changed = true;
                 }
                 Some(value) if value != update.$get => {
-                    modified_cargo.$insert(update.$get)?;
+                    modified_manifest.$insert(update.$get)?;
                     issues.push(CargoIssue::$wrong);
                     changed = true;
                 }
@@ -874,11 +876,12 @@ pub(crate) fn work_cargo_toml(
         WrongPackageDocumentation
     };
 
-    if cargo.description()?.is_none() {
+    if package.manifest.description()?.is_none() {
         issues.push(CargoIssue::PackageDescription);
     }
 
-    if cargo
+    if package
+        .manifest
         .categories()?
         .filter(|value| !value.is_empty())
         .is_none()
@@ -886,7 +889,8 @@ pub(crate) fn work_cargo_toml(
         issues.push(CargoIssue::PackageCategories);
     }
 
-    if cargo
+    if package
+        .manifest
         .keywords()?
         .filter(|value| !value.is_empty())
         .is_none()
@@ -894,67 +898,70 @@ pub(crate) fn work_cargo_toml(
         issues.push(CargoIssue::PackageKeywords);
     }
 
-    if cargo
+    if package
+        .manifest
         .authors()?
         .filter(|authors| !authors.is_empty())
         .is_none()
     {
         issues.push(CargoIssue::PackageAuthorsEmpty);
         changed = true;
-        modified_cargo.insert_authors(update.authors.to_vec())?;
+        modified_manifest.insert_authors(update.authors.to_vec())?;
     }
 
-    if matches!(cargo.dependencies(), Some(d) if d.is_empty()) {
+    if matches!(package.manifest.dependencies(), Some(d) if d.is_empty()) {
         issues.push(CargoIssue::PackageDependenciesEmpty);
         changed = true;
-        modified_cargo.remove_dependencies();
+        modified_manifest.remove_dependencies();
     }
 
-    if matches!(cargo.dev_dependencies(), Some(d) if d.is_empty()) {
+    if matches!(package.manifest.dev_dependencies(), Some(d) if d.is_empty()) {
         issues.push(CargoIssue::PackageDevDependenciesEmpty);
         changed = true;
-        modified_cargo.remove_dev_dependencies();
+        modified_manifest.remove_dev_dependencies();
     }
 
-    if matches!(cargo.build_dependencies(), Some(d) if d.is_empty()) {
+    if matches!(package.manifest.build_dependencies(), Some(d) if d.is_empty()) {
         issues.push(CargoIssue::PackageBuildDependenciesEmpty);
         changed = true;
-        modified_cargo.remove_build_dependencies();
+        modified_manifest.remove_build_dependencies();
     }
 
-    let package = modified_cargo.package()?;
-    let mut keys = Vec::new();
+    {
+        let package = modified_manifest.package()?;
+        let mut keys = Vec::new();
 
-    for (key, _) in package.iter() {
-        if let Some(key) = cargo_key(key) {
-            keys.push(key);
+        for (key, _) in package.iter() {
+            if let Some(key) = cargo_key(key) {
+                keys.push(key);
+            }
         }
-    }
 
-    let mut sorted_keys = keys.clone();
-    sorted_keys.sort();
+        let mut sorted_keys = keys.clone();
+        sorted_keys.sort();
 
-    if keys != sorted_keys {
-        issues.push(CargoIssue::KeysNotSorted {
-            actual: keys,
-            expected: sorted_keys,
-        });
-        modified_cargo.sort_package_keys(|a, _, b, _| {
-            let a = cargo_key(a.to_string().trim())
-                .map(SortKey::CargoKey)
-                .unwrap_or(SortKey::Other(a));
-            let b = cargo_key(b.to_string().trim())
-                .map(SortKey::CargoKey)
-                .unwrap_or(SortKey::Other(b));
-            a.cmp(&b)
-        })?;
-        changed = true;
+        if keys != sorted_keys {
+            issues.push(CargoIssue::KeysNotSorted {
+                actual: keys,
+                expected: sorted_keys,
+            });
+            modified_manifest.sort_package_keys(|a, _, b, _| {
+                let a = cargo_key(a.to_string().trim())
+                    .map(SortKey::CargoKey)
+                    .unwrap_or(SortKey::Other(a));
+                let b = cargo_key(b.to_string().trim())
+                    .map(SortKey::CargoKey)
+                    .unwrap_or(SortKey::Other(b));
+                a.cmp(&b)
+            })?;
+            changed = true;
+        }
     }
 
     if !issues.is_empty() {
         validation.push(Validation::CargoTomlIssues {
-            path: path.into(),
-            cargo: changed.then_some(modified_cargo),
+            path: package.manifest_path.clone(),
+            cargo: changed.then_some(modified_manifest),
             issues,
         });
     }

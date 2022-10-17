@@ -16,7 +16,6 @@
 [submodule "musli"]
 	path = repos/musli
 	url = https://github.com/udoprog/musli
-	cargo-toml = crates/musli/Cargo.toml
 [submodule "unsync"]
 	path = repos/unsync
 	url = https://github.com/udoprog/unsync

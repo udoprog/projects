@@ -93,8 +93,9 @@ fn main() -> Result<()> {
             continue;
         }
 
-        let (path, url) = if let (Some(path), Some(url)) = (&module.path, &module.url) {
-            (path.to_path(&root), url)
+        let (module_path, module_url) = if let (Some(path), Some(url)) = (module.path, &module.url)
+        {
+            (path, url)
         } else {
             println!(
                 ".gitmodules: {name}: missing `path` and/or `url`",
@@ -103,34 +104,30 @@ fn main() -> Result<()> {
             continue;
         };
 
-        let repo = String::from(url.path().trim_matches('/'));
+        let repo = String::from(module_url.path().trim_matches('/'));
 
-        let cargo_toml = match &module.cargo_toml {
-            Some(cargo_toml) => cargo_toml.to_path(&path),
-            None => path.join("Cargo.toml"),
+        let cargo_toml = match module.cargo_toml {
+            Some(cargo_toml) => module_path.join(cargo_toml),
+            None => module_path.join("Cargo.toml"),
         };
 
-        let workspace = workspace::open(&cargo_toml)?;
+        let workspace = workspace::open(&root, &cargo_toml)?;
 
         let primary_crate = module.krate.or(repo.split('/').last());
 
-        let (primary_crate_root, _, primary_crate) = match workspace.primary_crate(primary_crate)? {
+        let primary_crate = match workspace.primary_crate(primary_crate)? {
             Some(primary_crate) => primary_crate,
-            None => {
-                return Err(anyhow!(
-                    "{}: cannot determine primary crate",
-                    path.display()
-                ))
-            }
+            None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
         };
 
         let crate_name = primary_crate
+            .manifest
             .crate_name()
-            .with_context(|| anyhow!("{path}: failed to read", path = cargo_toml.display()))?;
+            .with_context(|| anyhow!("{cargo_toml}: failed to read"))?;
 
         let documentation = format!("{DOCS_RS}/{crate_name}");
 
-        let url_string = url.to_string();
+        let url_string = module_url.to_string();
 
         let update_params = UpdateParams {
             license: &config.license,
@@ -141,19 +138,19 @@ fn main() -> Result<()> {
             authors: &config.authors,
         };
 
-        for (_, path, package) in workspace.packages() {
-            if package.is_publish()? {
-                work_cargo_toml(path, &package, &mut validation, &update_params)?;
+        for package in workspace.packages() {
+            if package.manifest.is_publish()? {
+                work_cargo_toml(package, &mut validation, &update_params)?;
             }
         }
 
         if module.is_enabled("ci") {
-            let path = path.join(".github").join("workflows");
+            let path = module_path.join(".github").join("workflows").to_path(&root);
             let ci = Ci::new(
                 &path,
                 &config.job_name,
                 &uses,
-                &primary_crate,
+                &primary_crate.manifest,
                 !workspace.is_single_crate(),
             );
             ci.validate(&mut validation)
@@ -162,19 +159,28 @@ fn main() -> Result<()> {
 
         if module.is_enabled("readme") {
             build_readme(
-                &path,
-                &primary_crate_root,
+                &root,
+                module_path,
+                &primary_crate.manifest_dir,
                 &repo,
                 crate_name,
                 &badges,
                 &mut validation,
             )?;
 
-            for (root, _, package) in workspace.packages() {
-                if root != path {
-                    if package.is_publish()? {
-                        let crate_name = package.crate_name()?;
-                        build_readme(&root, &root, &repo, crate_name, &badges, &mut validation)?;
+            for package in workspace.packages() {
+                if package.manifest_dir != module_path {
+                    if package.manifest.is_publish()? {
+                        let crate_name = package.manifest.crate_name()?;
+                        build_readme(
+                            &root,
+                            &package.manifest_dir,
+                            &package.manifest_dir,
+                            &repo,
+                            crate_name,
+                            &badges,
+                            &mut validation,
+                        )?;
                     }
                 }
             }
@@ -328,9 +334,7 @@ fn main() -> Result<()> {
                 cargo: modified_cargo,
                 issues,
             } => {
-                println! {
-                    "{path}:", path = path.display()
-                };
+                println!("{path}:");
 
                 for issue in issues {
                     println!("  {issue}");
@@ -338,7 +342,7 @@ fn main() -> Result<()> {
 
                 if opts.fix {
                     if let Some(modified_cargo) = modified_cargo {
-                        modified_cargo.save_to(path)?;
+                        modified_cargo.save_to(path.to_path(&root))?;
                     }
                 }
             }
@@ -350,17 +354,17 @@ fn main() -> Result<()> {
 
 /// Perform readme validation.
 fn build_readme(
-    readme_path: &Path,
-    crate_path: &Path,
+    root: &Path,
+    readme_path: &RelativePath,
+    crate_path: &RelativePath,
     repo: &str,
     crate_name: &str,
     badges: &Badges,
     validation: &mut Vec<Validation>,
 ) -> Result<()> {
     let params = ReadmeParams { repo, crate_name };
-    let readme_path = readme_path.join(README_MD);
-
-    let lib_rs = crate_path.join("src").join("lib.rs");
+    let readme_path = readme_path.join(README_MD).to_path(root);
+    let lib_rs = crate_path.join("src").join("lib.rs").to_path(root);
 
     let readme = Readme::new(&readme_path, &lib_rs, badges, &params);
 

@@ -8,7 +8,7 @@ use toml_edit::{Array, Document, Formatted, Item, Key, Table, Value};
 
 /// A parsed `Cargo.toml`.
 #[derive(Debug, Clone)]
-pub(crate) struct CargoToml {
+pub(crate) struct Manifest {
     doc: Document,
 }
 
@@ -42,11 +42,11 @@ macro_rules! dependencies {
 }
 
 /// A cargo workspace.
-pub(crate) struct CargoWorkspace<'a> {
+pub(crate) struct Workspace<'a> {
     table: &'a Table,
 }
 
-impl<'a> CargoWorkspace<'a> {
+impl<'a> Workspace<'a> {
     /// Get list of members.
     pub(crate) fn members(&self) -> impl Iterator<Item = &'a RelativePath> {
         let members = self.table.get("members").and_then(|v| v.as_array());
@@ -57,7 +57,7 @@ impl<'a> CargoWorkspace<'a> {
     }
 }
 
-impl CargoToml {
+impl Manifest {
     /// Test if toml defines a package.
     pub(crate) fn is_package(&self) -> bool {
         self.doc.contains_key("package")
@@ -73,10 +73,9 @@ impl CargoToml {
     }
 
     /// Get workspace configuration.
-    pub(crate) fn workspace(&self) -> Option<CargoWorkspace<'_>> {
+    pub(crate) fn as_workspace(&self) -> Option<Workspace<'_>> {
         let table = self.doc.get("workspace")?.as_table()?;
-
-        Some(CargoWorkspace { table })
+        Some(Workspace { table })
     }
 
     field!(license, insert_license, "license");
@@ -224,11 +223,11 @@ impl CargoToml {
 }
 
 /// Open a `Cargo.toml`.
-pub(crate) fn open<P>(path: P) -> Result<CargoToml>
+pub(crate) fn open<P>(path: P) -> Result<Manifest>
 where
     P: AsRef<Path>,
 {
     let input = std::fs::read_to_string(path)?;
     let doc = input.parse()?;
-    Ok(CargoToml { doc })
+    Ok(Manifest { doc })
 }
