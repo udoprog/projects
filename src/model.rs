@@ -3,7 +3,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
@@ -102,36 +102,36 @@ cargo_keys! {
 
 pub(crate) enum Validation {
     MissingWorkflows {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     DeprecatedWorkflow {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     MissingWorkflow {
-        path: PathBuf,
-        candidates: Box<[PathBuf]>,
+        path: RelativePathBuf,
+        candidates: Box<[RelativePathBuf]>,
     },
     WrongWorkflowName {
-        path: PathBuf,
+        path: RelativePathBuf,
         actual: String,
         expected: String,
     },
     /// Oudated version of an action.
     OutdatedAction {
-        path: PathBuf,
+        path: RelativePathBuf,
         name: String,
         actual: String,
         expected: String,
     },
     /// Deny use of the specific action.
     DeniedAction {
-        path: PathBuf,
+        path: RelativePathBuf,
         name: String,
         reason: String,
     },
     /// Actions check failed.
     CustomActionsCheck {
-        path: PathBuf,
+        path: RelativePathBuf,
         name: String,
         reason: String,
     },
@@ -159,17 +159,17 @@ pub(crate) enum Validation {
         line_offset: usize,
     },
     MissingFeature {
-        path: PathBuf,
+        path: RelativePathBuf,
         feature: String,
     },
     NoFeatures {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     MissingEmptyFeatures {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     MissingAllFeatures {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     CargoTomlIssues {
         path: RelativePathBuf,
@@ -179,7 +179,7 @@ pub(crate) enum Validation {
 }
 
 pub(crate) struct Ci<'a> {
-    path: &'a Path,
+    path: &'a RelativePath,
     name: &'a str,
     actions: &'a Actions<'a>,
     manifest: &'a Manifest,
@@ -189,7 +189,7 @@ pub(crate) struct Ci<'a> {
 impl<'a> Ci<'a> {
     /// Construct a new CI config.
     pub(crate) fn new(
-        path: &'a Path,
+        path: &'a RelativePath,
         name: &'a str,
         actions: &'a Actions<'a>,
         manifest: &'a Manifest,
@@ -205,21 +205,24 @@ impl<'a> Ci<'a> {
     }
 
     /// Get candidates.
-    fn candidates(&self) -> Result<Box<[PathBuf]>> {
-        let dir = fs::read_dir(&self.path)?;
+    fn candidates(&self, root: &Path) -> Result<Box<[RelativePathBuf]>> {
+        let dir = fs::read_dir(self.path.to_path(root))?;
         let mut paths = Vec::new();
 
         for e in dir {
             let e = e?;
-            paths.push(e.path());
+
+            if let Some(name) = e.file_name().to_str() {
+                paths.push(self.path.join(name));
+            }
         }
 
         Ok(paths.into())
     }
 
     /// Validate the current model.
-    pub(crate) fn validate(&self, validation: &mut Vec<Validation>) -> Result<()> {
-        if !self.path.is_dir() {
+    pub(crate) fn validate(&self, root: &Path, validation: &mut Vec<Validation>) -> Result<()> {
+        if !self.path.to_path(root).is_dir() {
             validation.push(Validation::MissingWorkflows {
                 path: self.path.to_owned(),
             });
@@ -231,10 +234,10 @@ impl<'a> Ci<'a> {
         let expected_path = self.path.join("ci.yml");
 
         let candidates = self
-            .candidates()
-            .with_context(|| anyhow!("list candidates: {path}", path = self.path.display()))?;
+            .candidates(root)
+            .with_context(|| anyhow!("list candidates: {path}", path = self.path))?;
 
-        let path = if !expected_path.is_file() {
+        let path = if !expected_path.to_path(root).is_file() {
             let path = match &candidates[..] {
                 [path] => Some(path.clone()),
                 _ => None,
@@ -253,20 +256,20 @@ impl<'a> Ci<'a> {
             expected_path
         };
 
-        if deprecated_yml.is_file() && candidates.len() > 1 {
+        if deprecated_yml.to_path(root).is_file() && candidates.len() > 1 {
             validation.push(Validation::DeprecatedWorkflow {
                 path: deprecated_yml,
             });
         }
 
-        let bytes = std::fs::read(&path)?;
+        let bytes = std::fs::read(path.to_path(root))?;
         let value: serde_yaml::Value =
-            serde_yaml::from_slice(&bytes).with_context(|| anyhow!("{}", path.display()))?;
+            serde_yaml::from_slice(&bytes).with_context(|| anyhow!("{path}"))?;
 
         let name = value
             .get("name")
             .and_then(|name| name.as_str())
-            .ok_or_else(|| anyhow!("{}: missing .name", path.display()))?;
+            .ok_or_else(|| anyhow!("{path}: missing .name"))?;
 
         if name != self.name {
             validation.push(Validation::WrongWorkflowName {
@@ -283,7 +286,7 @@ impl<'a> Ci<'a> {
     /// Validate that jobs are modern.
     fn validate_jobs(
         &self,
-        path: &Path,
+        path: &RelativePath,
         value: &serde_yaml::Value,
         validation: &mut Vec<Validation>,
     ) -> Result<()> {
@@ -341,7 +344,7 @@ impl<'a> Ci<'a> {
 
     fn verify_single_project_build(
         &self,
-        path: &Path,
+        path: &RelativePath,
         job: &serde_yaml::Value,
         validation: &mut Vec<Validation>,
     ) {
@@ -464,7 +467,7 @@ impl<'a> Ci<'a> {
     /// Ensure that feature combination is valid.
     fn ensure_feature_combo(
         &self,
-        path: &Path,
+        path: &RelativePath,
         cargos: &[Cargo],
         validation: &mut Vec<Validation>,
     ) -> bool {

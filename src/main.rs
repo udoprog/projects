@@ -136,10 +136,7 @@ fn run_module(
     }
 
     if module.is_enabled("ci") {
-        let path = module_path
-            .join(".github")
-            .join("workflows")
-            .to_path(cx.root);
+        let path = module_path.join(".github").join("workflows");
         let ci = Ci::new(
             &path,
             &cx.config.job_name,
@@ -147,7 +144,7 @@ fn run_module(
             &primary_crate.manifest,
             !workspace.is_single_crate(),
         );
-        ci.validate(validation)
+        ci.validate(cx.root, validation)
             .with_context(|| anyhow!("ci validation: {}", cx.config.job_name))?;
     }
 
@@ -291,43 +288,33 @@ async fn entry() -> Result<()> {
 fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
     Ok(match error {
         Validation::MissingWorkflows { path } => {
-            println!("{path}: Missing workflows directory", path = path.display());
+            println!("{path}: Missing workflows directory");
         }
         Validation::MissingWorkflow { path, candidates } => {
-            println!("{path}: Missing workflow", path = path.display());
+            println!("{path}: Missing workflow");
 
             for candidate in candidates.iter() {
-                println! {
-                    "  Candidate: {candidate}",
-                    candidate = candidate.display()
-                };
+                println!("  Candidate: {candidate}");
             }
 
             if run.fix {
                 if let [from] = candidates.as_ref() {
-                    println!(
-                        "{path}: Rename from {from}",
-                        path = path.display(),
-                        from = from.display()
-                    );
-                    std::fs::rename(from, path)?;
+                    println!("{path}: Rename from {from}",);
+                    std::fs::rename(from.to_path(cx.root), path.to_path(cx.root))?;
                 } else {
-                    std::fs::write(path, &cx.config.default_workflow)?;
+                    std::fs::write(path.to_path(cx.root), &cx.config.default_workflow)?;
                 }
             }
         }
         Validation::DeprecatedWorkflow { path } => {
-            println!("{path}: Reprecated Workflow", path = path.display());
+            println!("{path}: Reprecated Workflow");
         }
         Validation::WrongWorkflowName {
             path,
             actual,
             expected,
         } => {
-            println! {
-                "{path}: Wrong workflow name: {actual} (actual) != {expected} (expected)",
-                path = path.display()
-            };
+            println!("{path}: Wrong workflow name: {actual} (actual) != {expected} (expected)");
         }
         Validation::OutdatedAction {
             path,
@@ -335,22 +322,15 @@ fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
             actual,
             expected,
         } => {
-            println! {
-                "{path}: Outdated action `{name}`: {actual} (actual) != {expected} (expected)",
-                path = path.display()
-            };
+            println!(
+                "{path}: Outdated action `{name}`: {actual} (actual) != {expected} (expected)"
+            );
         }
         Validation::DeniedAction { path, name, reason } => {
-            println! {
-                "{path}: Denied action `{name}`: {reason}",
-                path = path.display()
-            };
+            println!("{path}: Denied action `{name}`: {reason}");
         }
         Validation::CustomActionsCheck { path, name, reason } => {
-            println! {
-                "{path}: Action validation failed `{name}`: {reason}",
-                path = path.display()
-            };
+            println!("{path}: Action validation failed `{name}`: {reason}");
         }
         Validation::MissingReadme { path } => {
             println!("{path}: Missing README");
@@ -392,24 +372,16 @@ fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
             println!("{string}");
         }
         Validation::MissingFeature { path, feature } => {
-            println! {
-                "{path}: missing features `{feature}`", path = path.display()
-            };
+            println!("{path}: missing features `{feature}`");
         }
         Validation::NoFeatures { path } => {
-            println! {
-                "{path}: trying featured build (--all-features, --no-default-features), but no features present", path = path.display()
-            };
+            println!("{path}: trying featured build (--all-features, --no-default-features), but no features present");
         }
         Validation::MissingEmptyFeatures { path } => {
-            println! {
-                "{path}: missing empty features build", path = path.display()
-            };
+            println!("{path}: missing empty features build");
         }
         Validation::MissingAllFeatures { path } => {
-            println! {
-                "{path}: missing all features build", path = path.display()
-            };
+            println!("{path}: missing all features build");
         }
         Validation::CargoTomlIssues {
             path,
