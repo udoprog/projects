@@ -4,16 +4,19 @@ use std::fs;
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use relative_path::RelativePathBuf;
+use pulldown_cmark::{LinkType, Options};
+use relative_path::{RelativePath, RelativePathBuf};
 use toml_edit::Key;
+use url::Url;
 
 use crate::actions::Actions;
 use crate::badges::Badges;
 use crate::cargo::Manifest;
 use crate::file::File;
+use crate::urls::Urls;
 use crate::workspace::Package;
 
 macro_rules! cargo_issues {
@@ -133,25 +136,25 @@ pub(crate) enum Validation {
         reason: String,
     },
     MissingReadme {
-        path: PathBuf,
+        path: RelativePathBuf,
     },
     MismatchedLibRs {
-        path: PathBuf,
-        new_file: Rc<File>,
+        path: RelativePathBuf,
+        new_file: Arc<File>,
     },
     BadReadme {
-        path: PathBuf,
-        new_file: Rc<File>,
+        path: RelativePathBuf,
+        new_file: Arc<File>,
     },
     ToplevelHeadings {
-        path: PathBuf,
-        file: Rc<File>,
+        path: RelativePathBuf,
+        file: Arc<File>,
         range: Range<usize>,
         line_offset: usize,
     },
     MissingPreceedingBr {
-        path: PathBuf,
-        file: Rc<File>,
+        path: RelativePathBuf,
+        file: Arc<File>,
         range: Range<usize>,
         line_offset: usize,
     },
@@ -533,8 +536,8 @@ pub(crate) struct ReadmeParams<'a> {
 }
 
 pub(crate) struct Readme<'a> {
-    pub(crate) path: &'a Path,
-    pub(crate) lib_rs: &'a Path,
+    pub(crate) path: &'a RelativePath,
+    pub(crate) lib_rs: &'a RelativePath,
     pub(crate) badges: &'a Badges<'a>,
     pub(crate) params: &'a ReadmeParams<'a>,
 }
@@ -542,8 +545,8 @@ pub(crate) struct Readme<'a> {
 impl<'a> Readme<'a> {
     /// Construct a new README config.
     pub(crate) fn new(
-        path: &'a Path,
-        lib_rs: &'a Path,
+        path: &'a RelativePath,
+        lib_rs: &'a RelativePath,
         badges: &'a Badges<'a>,
         params: &'a ReadmeParams<'a>,
     ) -> Self {
@@ -556,17 +559,21 @@ impl<'a> Readme<'a> {
     }
 
     /// Validate the current model.
-    pub(crate) fn validate(&self, validation: &mut Vec<Validation>) -> Result<()> {
-        if !self.path.is_file() {
+    pub(crate) fn validate(
+        &self,
+        root: &Path,
+        validation: &mut Vec<Validation>,
+        urls: &mut Urls,
+    ) -> Result<()> {
+        if !self.path.to_path(root).is_file() {
             validation.push(Validation::MissingReadme {
                 path: self.path.to_owned(),
             });
         }
 
-        if self.lib_rs.is_file() {
-            let (file, new_file) = self.process_lib_rs()?;
-
-            let checks = markdown_checks(&file)?;
+        if self.lib_rs.to_path(root).is_file() {
+            let (file, new_file) = self.process_lib_rs(root)?;
+            let checks = self.markdown_checks(&file, urls)?;
 
             for (file, range) in checks.toplevel_headings {
                 validation.push(Validation::ToplevelHeadings {
@@ -595,7 +602,7 @@ impl<'a> Readme<'a> {
                 });
             }
 
-            let readme = match File::read(&self.path) {
+            let readme = match File::read(self.path.to_path(root)) {
                 Ok(file) => file,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => File::new(),
                 Err(e) => return Err(e.into()),
@@ -604,7 +611,7 @@ impl<'a> Readme<'a> {
             if readme != readme_from_lib_rs {
                 validation.push(Validation::BadReadme {
                     path: self.path.to_owned(),
-                    new_file: Rc::new(readme_from_lib_rs),
+                    new_file: Arc::new(readme_from_lib_rs),
                 });
             }
         }
@@ -613,8 +620,8 @@ impl<'a> Readme<'a> {
     }
 
     /// Process the lib rs.
-    fn process_lib_rs(&self) -> Result<(Rc<File>, Rc<File>), anyhow::Error> {
-        let lib_rs = File::read(&self.lib_rs)?;
+    fn process_lib_rs(&self, root: &Path) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
+        let lib_rs = File::read(self.lib_rs.to_path(root))?;
         let mut new_file = File::new();
 
         for badge in self.badges.iter() {
@@ -636,7 +643,7 @@ impl<'a> Readme<'a> {
             new_file.push(bytes);
         }
 
-        return Ok((Rc::new(lib_rs), Rc::new(new_file)));
+        return Ok((Arc::new(lib_rs), Arc::new(new_file)));
 
         pub const fn trim_ascii_end(mut bytes: &[u8]) -> &[u8] {
             while let [rest @ .., last] = bytes {
@@ -649,6 +656,116 @@ impl<'a> Readme<'a> {
 
             bytes
         }
+    }
+
+    /// Test if the specified file has toplevel headings.
+    fn markdown_checks(&self, file: &Arc<File>, urls: &mut Urls) -> Result<MarkdownChecks> {
+        use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
+
+        let mut comment = Vec::new();
+
+        let mut initial = true;
+        let mut checks = MarkdownChecks::default();
+
+        for (offset, line) in file.lines().enumerate() {
+            if initial {
+                checks.line_offset = offset + 1;
+            }
+
+            if let Some(line) = line.as_rust_comment() {
+                comment.push(std::str::from_utf8(line)?);
+                initial = false;
+            }
+        }
+
+        let comment = comment.join("\n");
+        let file = Arc::new(File::from_vec(comment.as_bytes().to_vec()));
+
+        let opts = Options::empty();
+
+        let parser = Parser::new_with_broken_link_callback(&comment, opts, None);
+        let mut preceeding_newline = false;
+
+        for (event, range) in parser.into_offset_iter() {
+            match event {
+                Event::Html(html) => {
+                    if html.trim() == "<br>" {
+                        preceeding_newline = true;
+                        continue;
+                    }
+                }
+                Event::Start(tag) => match tag {
+                    Tag::Heading(level, _, _) => {
+                        if !preceeding_newline {
+                            checks
+                                .missing_preceeding_br
+                                .push((file.clone(), range.clone()));
+                        }
+
+                        if matches!(level, HeadingLevel::H1) {
+                            checks.toplevel_headings.push((file.clone(), range.clone()));
+                        }
+                    }
+                    Tag::Link(LinkType::Autolink, href, _) => {
+                        self.visit_url(href.as_ref(), &file, &range, &checks, urls)?;
+                    }
+                    Tag::Link(LinkType::Inline, href, _) => {
+                        self.visit_url(href.as_ref(), &file, &range, &checks, urls)?;
+                    }
+                    Tag::Link(LinkType::Shortcut, href, _) => {
+                        self.visit_url(href.as_ref(), &file, &range, &checks, urls)?;
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+
+            preceeding_newline = false;
+        }
+
+        Ok(checks)
+    }
+
+    /// Insert an URL.
+    fn visit_url(
+        &self,
+        url: &str,
+        file: &Arc<File>,
+        range: &Range<usize>,
+        checks: &MarkdownChecks,
+        urls: &mut Urls,
+    ) -> Result<()> {
+        // Link to anchor does nothing.
+        if url.starts_with('#') {
+            return Ok(());
+        }
+
+        let error = match str::parse::<Url>(url) {
+            Ok(url) if matches!(url.scheme(), "http" | "https") => {
+                urls.insert(
+                    url,
+                    file.clone(),
+                    range.clone(),
+                    self.lib_rs,
+                    checks.line_offset,
+                );
+
+                return Ok(());
+            }
+            Ok(url) => anyhow!("only 'http://' or 'https://' urls are supported, got `{url}`"),
+            Err(e) => e.into(),
+        };
+
+        urls.insert_bad_url(
+            url.to_owned(),
+            error,
+            file.clone(),
+            range.clone(),
+            self.lib_rs,
+            checks.line_offset,
+        );
+
+        Ok(())
     }
 }
 
@@ -668,65 +785,8 @@ fn is_badge_comment(c: &[u8]) -> bool {
 #[derive(Default)]
 struct MarkdownChecks {
     line_offset: usize,
-    toplevel_headings: Vec<(Rc<File>, Range<usize>)>,
-    missing_preceeding_br: Vec<(Rc<File>, Range<usize>)>,
-}
-
-/// Test if the specified file has toplevel headings.
-fn markdown_checks(file: &File) -> Result<MarkdownChecks> {
-    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
-
-    let mut comment = Vec::new();
-
-    let mut initial = true;
-    let mut checks = MarkdownChecks::default();
-
-    for (offset, line) in file.lines().enumerate() {
-        if initial {
-            checks.line_offset = offset + 1;
-        }
-
-        if let Some(line) = line.as_rust_comment() {
-            comment.push(std::str::from_utf8(line)?);
-            initial = false;
-        }
-    }
-
-    let comment = comment.join("\n");
-    let file = Rc::new(File::from_vec(comment.as_bytes().to_vec()));
-
-    let parser = Parser::new(&comment);
-    let mut preceeding_newline = false;
-
-    for (event, range) in parser.into_offset_iter() {
-        match event {
-            Event::Html(html) => {
-                if html.trim() == "<br>" {
-                    preceeding_newline = true;
-                    continue;
-                }
-            }
-            Event::Start(tag) => match tag {
-                Tag::Heading(level, _, _) => {
-                    if !preceeding_newline {
-                        checks
-                            .missing_preceeding_br
-                            .push((file.clone(), range.clone()));
-                    }
-
-                    if matches!(level, HeadingLevel::H1) {
-                        checks.toplevel_headings.push((file.clone(), range.clone()));
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-
-        preceeding_newline = false;
-    }
-
-    Ok(checks)
+    toplevel_headings: Vec<(Arc<File>, Range<usize>)>,
+    missing_preceeding_br: Vec<(Arc<File>, Range<usize>)>,
 }
 
 /// Generate a readme.

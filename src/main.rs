@@ -1,15 +1,18 @@
 use std::collections::BTreeSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use anyhow::{anyhow, Context, Result};
+use model::UpdateParams;
+use relative_path::RelativePath;
+use url::Url;
 
 use crate::actions::{Actions, ActionsCheck};
 use crate::badges::{Badge, Badges};
 use crate::config::ConfigBadge;
-use crate::file::LineColumn;
+use crate::file::{File, LineColumn};
 use crate::model::{work_cargo_toml, Ci, Readme, ReadmeParams, Validation};
-use anyhow::{anyhow, Context, Result};
-use http::Uri;
-use model::UpdateParams;
-use relative_path::RelativePath;
+use crate::urls::{UrlError, Urls};
 
 mod actions;
 mod badges;
@@ -18,18 +21,47 @@ mod config;
 mod file;
 mod gitmodules;
 mod model;
+mod urls;
 mod workspace;
 
 const DOCS_RS: &str = "https://docs.rs";
 const GITHUB_COM: &str = "https://github.com";
 const README_MD: &str = "README.md";
 
-#[derive(Default)]
-struct Opts {
-    fix: bool,
+argwerk::define! {
+    #[derive(Default)]
+    #[usage = "tool [-h]"]
+    struct Opts {
+        help: bool,
+        fix: bool,
+        url_checks: bool,
+        filters: Vec<String>,
+    }
+    /// Show this help.
+    ["-h" | "--help"] => {
+        println!("{}", Opts::help());
+        help = true;
+    }
+    /// Fix any issues with projects.
+    ["--fix"] => {
+        fix = true;
+    }
+    /// Perform URL checks.
+    ["--url-checks"] => {
+        url_checks = true;
+    }
+    /// Filter which project to apply changes to.
+    [filter] => {
+        filters.push(filter);
+    }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    entry().await
+}
+
+async fn entry() -> Result<()> {
     let root = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR")
             .ok_or_else(|| anyhow!("missing CARGO_MANIFEST_DIR"))?,
@@ -39,24 +71,10 @@ fn main() -> Result<()> {
     let config =
         config::load(&config_path).with_context(|| config_path.to_string_lossy().into_owned())?;
 
-    let mut filters = Vec::new();
-    let mut opts = Opts::default();
+    let opts = Opts::args()?;
 
-    for arg in std::env::args().skip(1) {
-        if arg.starts_with('-') {
-            match arg.as_str() {
-                "--fix" => {
-                    opts.fix = true;
-                }
-                _ => {
-                    return Err(anyhow!("unsupported argument: {arg}"));
-                }
-            }
-
-            continue;
-        }
-
-        filters.push(arg);
+    if opts.help {
+        return Ok(());
     }
 
     let mut badges = Badges::new();
@@ -88,8 +106,15 @@ fn main() -> Result<()> {
     let gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
     let modules = parse_git_modules(&gitmodules_bytes).context(".gitmodules")?;
 
+    let mut urls = Urls::default();
+
     for module in &modules {
-        if !filters.is_empty() && !filters.iter().all(|filter| module.name.contains(filter)) {
+        if !opts.filters.is_empty()
+            && !opts
+                .filters
+                .iter()
+                .all(|filter| module.name.contains(filter))
+        {
             continue;
         }
 
@@ -108,7 +133,7 @@ fn main() -> Result<()> {
 
         let cargo_toml = match module.cargo_toml {
             Some(cargo_toml) => module_path.join(cargo_toml),
-            None => module_path.join("Cargo.toml"),
+            None => module_path.join(workspace::CARGO_TOML),
         };
 
         let workspace = workspace::open(&root, &cargo_toml)?;
@@ -166,6 +191,7 @@ fn main() -> Result<()> {
                 crate_name,
                 &badges,
                 &mut validation,
+                &mut urls,
             )?;
 
             for package in workspace.packages() {
@@ -180,6 +206,7 @@ fn main() -> Result<()> {
                             crate_name,
                             &badges,
                             &mut validation,
+                            &mut urls,
                         )?;
                     }
                 }
@@ -252,61 +279,42 @@ fn main() -> Result<()> {
                 };
             }
             Validation::MissingReadme { path } => {
-                println! {
-                    "{path}: Missing README", path = path.display()
-                };
+                println!("{path}: Missing README");
             }
             Validation::MismatchedLibRs { path, new_file } => {
                 if opts.fix {
-                    println!("{path}: Fixing lib.rs", path = path.display());
-                    std::fs::write(path, new_file.as_bytes())?;
+                    println!("{path}: Fixing lib.rs");
+                    std::fs::write(path.to_path(&root), new_file.as_bytes())?;
                 } else {
-                    println! {
-                        "{path}: Mismatched lib.rs", path = path.display()
-                    };
+                    println!("{path}: Mismatched lib.rs");
                 }
             }
             Validation::BadReadme { path, new_file } => {
                 if opts.fix {
-                    println!("{path}: Fixing README.md", path = path.display());
-                    std::fs::write(path, new_file.as_bytes())?;
+                    println!("{path}: Fixing README.md");
+                    std::fs::write(path.to_path(&root), new_file.as_bytes())?;
                 } else {
-                    println! {
-                        "{path}: Bad README.md", path = path.display()
-                    };
+                    println!("{path}: Bad README.md");
                 }
             }
             Validation::ToplevelHeadings {
                 path,
-                file: new_file,
+                file,
                 range,
                 line_offset,
             } => {
-                let (LineColumn { line, column, .. }, string) =
-                    new_file.line_column(range.start)?;
-                let line = line_offset + line;
-                let column = column + 4;
-
-                println! {
-                    "{path}:{line}:{column}: doc comment has toplevel headings", path = path.display()
-                };
-
+                let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
+                println!("{path}:{line}:{column}: doc comment has toplevel headings");
                 println!("{string}");
             }
             Validation::MissingPreceedingBr {
                 path,
-                file: new_file,
+                file,
                 range,
                 line_offset,
             } => {
-                let (LineColumn { line, column }, string) = new_file.line_column(range.start)?;
-                let line = line_offset + line;
-                let column = column + 4;
-
-                println! {
-                    "{path}:{line}:{column}: missing preceeding <br>", path = path.display()
-                };
-
+                let (line, column, string) = temporary_line_fix(&file, range.start, *line_offset)?;
+                println!("{path}:{line}:{column}: missing preceeding <br>");
                 println!("{string}");
             }
             Validation::MissingFeature { path, feature } => {
@@ -349,7 +357,82 @@ fn main() -> Result<()> {
         }
     }
 
+    let o = std::io::stdout();
+    let mut o = o.lock();
+
+    for (url, test) in urls.bad_urls() {
+        let path = &test.path;
+        let (line, column, string) =
+            temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
+
+        if let Some(error) = &test.error {
+            writeln!(o, "{path}:{line}:{column}: bad url: `{url}`: {error}")?;
+        } else {
+            writeln!(o, "{path}:{line}:{column}: bad url: `{url}`")?;
+        }
+
+        writeln!(o, "{string}")?;
+    }
+
+    if opts.url_checks {
+        url_checks(&mut o, urls).await?;
+    }
+
     Ok(())
+}
+
+/// Perform url checks.
+async fn url_checks<O>(o: &mut O, urls: Urls) -> Result<()>
+where
+    O: Write,
+{
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+    let total = urls.check_urls();
+    let checks = urls.check_urls_task(3, tx);
+    tokio::pin!(checks);
+    let mut count = 1;
+    let mut completed = false;
+
+    loop {
+        tokio::select! {
+            result = checks.as_mut(), if !completed => {
+                result?;
+                completed = true;
+            }
+            result = rx.recv() => {
+                let result = match result {
+                    Some(result) => result,
+                    None => break,
+                };
+
+                match result {
+                    Ok(_) => {}
+                    Err(UrlError { url, status, tests }) => {
+                        writeln!(o, "{count:>3}/{total} {url}: {status}")?;
+
+                        for test in tests {
+                            let path = &test.path;
+                            let (line, column, string) = temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
+                            writeln!(o, "  {path}:{line}:{column}: {string}")?;
+                        }
+                    }
+                }
+
+                count += 1;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Temporary line comment fix which adjusts the line and column.
+fn temporary_line_fix(file: &File, pos: usize, line_offset: usize) -> Result<(usize, usize, &str)> {
+    let (LineColumn { line, column }, string) = file.line_column(pos)?;
+    let line = line_offset + line;
+    let column = column + 4;
+    Ok((line, column, string))
 }
 
 /// Perform readme validation.
@@ -361,16 +444,17 @@ fn build_readme(
     crate_name: &str,
     badges: &Badges,
     validation: &mut Vec<Validation>,
+    urls: &mut Urls,
 ) -> Result<()> {
     let params = ReadmeParams { repo, crate_name };
-    let readme_path = readme_path.join(README_MD).to_path(root);
-    let lib_rs = crate_path.join("src").join("lib.rs").to_path(root);
+    let readme_path = readme_path.join(README_MD);
+    let lib_rs = crate_path.join("src").join("lib.rs");
 
     let readme = Readme::new(&readme_path, &lib_rs, badges, &params);
 
     readme
-        .validate(validation)
-        .with_context(|| anyhow!("{path}: readme validation", path = readme_path.display()))?;
+        .validate(root, validation, urls)
+        .with_context(|| anyhow!("{readme_path}: readme validation"))?;
 
     Ok(())
 }
@@ -419,7 +503,7 @@ impl Badge for GithubActionsBadge {
 pub(crate) struct GitModule<'a> {
     name: &'a str,
     path: Option<&'a RelativePath>,
-    url: Option<Uri>,
+    url: Option<Url>,
     cargo_toml: Option<&'a RelativePath>,
     krate: Option<&'a str>,
     disabled: BTreeSet<&'a str>,
@@ -467,7 +551,7 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<GitModule<'_>>> {
                 }
                 "url" => {
                     let string = std::str::from_utf8(value)?;
-                    url = Some(str::parse::<Uri>(string)?);
+                    url = Some(str::parse::<Url>(string)?);
                 }
                 "cargo-toml" => {
                     let string = std::str::from_utf8(value)?;

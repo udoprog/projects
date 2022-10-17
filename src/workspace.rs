@@ -5,6 +5,9 @@ use crate::cargo::{self, Manifest};
 use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 
+/// The default name of a cargo manifest `Cargo.toml`.
+pub(crate) const CARGO_TOML: &str = "Cargo.toml";
+
 /// Load a workspace starting at the given path.
 pub(crate) fn open<P>(root: P, manifest_path: &RelativePath) -> Result<Workspace>
 where
@@ -32,7 +35,7 @@ where
             let members = expand_members(root, &package, workspace.members())?;
 
             for manifest_dir in members {
-                let manifest_path = manifest_dir.join("Cargo.toml");
+                let manifest_path = manifest_dir.join(CARGO_TOML);
 
                 let manifest = cargo::open(manifest_path.to_path(root))
                     .with_context(|| anyhow!("{manifest_path}"))?;
