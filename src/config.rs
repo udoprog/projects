@@ -1,31 +1,53 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+
+use crate::badges::Badge;
+use crate::model::CrateParams;
+use crate::templates::{Template, Templating};
+
+#[derive(Serialize)]
+pub(crate) struct RenderParams<'a> {
+    #[serde(rename = "crate")]
+    pub(crate) crate_params: CrateParams<'a>,
+    extra: &'a toml::Value,
+}
 
 pub(crate) struct Config {
     pub(crate) default_workflow: String,
-    pub(crate) badges: Vec<ConfigBadge>,
     pub(crate) job_name: String,
     pub(crate) license: String,
     pub(crate) authors: Vec<String>,
+    pub(crate) extra: toml::Value,
+    pub(crate) documentation: Template,
+    pub(crate) badges: Vec<ConfigBadge>,
 }
 
-/// Differently configured badges.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub(crate) enum ConfigBadge {
-    #[serde(rename = "github")]
-    Github,
-    #[serde(rename = "crates.io")]
-    CratesIo,
-    #[serde(rename = "docs.rs")]
-    DocsRs,
-    #[serde(rename = "github-actions")]
-    GithubActions,
+impl Config {
+    /// Set up render parameters.
+    pub(crate) fn render_params<'a>(&'a self, krate: CrateParams<'a>) -> RenderParams<'a> {
+        RenderParams {
+            crate_params: krate,
+            extra: &self.extra,
+        }
+    }
+}
+
+pub(crate) struct ConfigBadge {
+    template: Template,
+}
+
+impl Badge for ConfigBadge {
+    #[inline]
+    fn build(&self, krate: CrateParams<'_>, config: &Config) -> Result<String> {
+        let data = config.render_params(krate);
+        self.template.render(&data)
+    }
 }
 
 /// Load a configuration from the given path.
-pub(crate) fn load<P>(path: P) -> Result<Config>
+pub(crate) fn load<P>(path: P, templating: &Templating) -> Result<Config>
 where
     P: AsRef<Path>,
 {
@@ -40,12 +62,23 @@ where
     let default_workflow = std::fs::read_to_string(&default_workflow_path)
         .with_context(|| default_workflow_path.to_string_lossy().into_owned())?;
 
+    let mut badges = Vec::new();
+
+    for badge in config.badges {
+        let template = templating.compile(&badge.template.trim())?;
+        badges.push(ConfigBadge { template });
+    }
+
+    let documentation = templating.compile(&config.documentation)?;
+
     Ok(Config {
         default_workflow,
-        badges: config.badges,
         job_name: config.job_name,
         license: config.license,
         authors: config.authors,
+        extra: config.extra,
+        documentation,
+        badges,
     })
 }
 
@@ -56,11 +89,18 @@ mod model {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub(super) struct Config {
         pub(super) default_workflow: RelativePathBuf,
-        #[serde(default)]
-        pub(super) badges: Vec<super::ConfigBadge>,
         pub(super) job_name: String,
         pub(super) license: String,
         #[serde(default)]
         pub(super) authors: Vec<String>,
+        pub(crate) extra: toml::Value,
+        pub(crate) documentation: String,
+        pub(super) badges: Vec<Badge>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub(super) struct Badge {
+        /// The template of the badge.
+        pub(super) template: String,
     }
 }

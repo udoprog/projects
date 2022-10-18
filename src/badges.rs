@@ -1,9 +1,11 @@
-use crate::model::ReadmeParams;
 use anyhow::Result;
+
+use crate::config::Config;
+use crate::model::CrateParams;
 
 /// Badge builder.
 pub(crate) trait Badge {
-    fn build(&self, params: &ReadmeParams<'_>) -> Result<String>;
+    fn build(&self, params: CrateParams<'_>, config: &Config) -> Result<String>;
 }
 
 /// Collection of badges to build.

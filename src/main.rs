@@ -10,10 +10,9 @@ use relative_path::RelativePath;
 use url::Url;
 
 use crate::actions::{Actions, ActionsCheck};
-use crate::badges::{Badge, Badges};
-use crate::config::ConfigBadge;
+use crate::badges::Badges;
 use crate::file::{File, LineColumn};
-use crate::model::{work_cargo_toml, Ci, Readme, ReadmeParams, Validation};
+use crate::model::{work_cargo_toml, Ci, CrateParams, Readme, Validation};
 use crate::urls::{UrlError, Urls};
 
 mod actions;
@@ -23,12 +22,102 @@ mod config;
 mod file;
 mod gitmodules;
 mod model;
+mod templates;
 mod urls;
 mod workspace;
 
-const DOCS_RS: &str = "https://docs.rs";
-const GITHUB_COM: &str = "https://github.com";
 const README_MD: &str = "README.md";
+const PROJECTS_TOML: &str = "Projects.toml";
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    entry().await
+}
+
+async fn entry() -> Result<()> {
+    let root = find_root()?;
+
+    let template = templates::Templating::new()?;
+
+    let config = {
+        let config_path = root.join(PROJECTS_TOML);
+        config::load(&config_path, &template)
+            .with_context(|| config_path.to_string_lossy().into_owned())?
+    };
+
+    let opts = Opts::try_parse()?;
+
+    let mut badges = Badges::new();
+
+    for badge in &config.badges {
+        badges.push(badge);
+    }
+
+    let mut actions = Actions::default();
+    actions.latest("actions/checkout", "v3");
+    actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
+    actions.deny("actions-rs/cargo", "using `run` is less verbose and faster");
+
+    let cx = Ctxt {
+        root: &root,
+        config: &config,
+        badges: &badges,
+        actions: &actions,
+    };
+
+    match &opts.action {
+        Action::Run(run) => {
+            let gitmodules_path = root.join(".gitmodules");
+            let gitmodules_bytes;
+            let mut modules = Vec::new();
+
+            if gitmodules_path.is_file() {
+                gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
+
+                modules.extend(
+                    parse_git_modules(&gitmodules_bytes)
+                        .with_context(|| anyhow!("{}", gitmodules_path.display()))?,
+                );
+            } else {
+                modules.push(module_from_git(&root)?);
+            }
+
+            let mut validation = Vec::new();
+            let mut urls = Urls::default();
+
+            for module in &modules {
+                run_module(&cx, run, module, &mut validation, &mut urls)?;
+            }
+
+            for validation in &validation {
+                validate(&cx, run, validation)?;
+            }
+
+            let o = std::io::stdout();
+            let mut o = o.lock();
+
+            for (url, test) in urls.bad_urls() {
+                let path = &test.path;
+                let (line, column, string) =
+                    temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
+
+                if let Some(error) = &test.error {
+                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`: {error}")?;
+                } else {
+                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`")?;
+                }
+
+                writeln!(o, "{string}")?;
+            }
+
+            if run.url_checks {
+                url_checks(&mut o, urls).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
 
 #[derive(Default, Parser)]
 struct Run {
@@ -54,11 +143,6 @@ impl Default for Action {
     fn default() -> Self {
         Self::Run(Run::default())
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    entry().await
 }
 
 struct Ctxt<'a> {
@@ -111,13 +195,12 @@ fn run_module(
         None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
     };
 
-    let crate_name = primary_crate
-        .manifest
-        .crate_name()
-        .with_context(|| anyhow!("{cargo_toml}: failed to read"))?;
+    let params = cx.config.render_params(CrateParams {
+        repo: &repo,
+        name: primary_crate.manifest.crate_name()?,
+    });
 
-    let documentation = format!("{DOCS_RS}/{crate_name}");
-
+    let documentation = cx.config.documentation.render(&params)?;
     let url_string = module_url.to_string();
 
     let update_params = UpdateParams {
@@ -153,8 +236,7 @@ fn run_module(
             &cx,
             module_path,
             &primary_crate.manifest_dir,
-            &repo,
-            crate_name,
+            params.crate_params,
             validation,
             urls,
         )?;
@@ -162,13 +244,16 @@ fn run_module(
         for package in workspace.packages() {
             if package.manifest_dir != module_path {
                 if package.manifest.is_publish()? {
-                    let crate_name = package.manifest.crate_name()?;
+                    let crate_params = CrateParams {
+                        repo: &repo,
+                        name: package.manifest.crate_name()?,
+                    };
+
                     build_readme(
                         cx,
                         &package.manifest_dir,
                         &package.manifest_dir,
-                        &repo,
-                        crate_name,
+                        crate_params,
                         validation,
                         urls,
                     )?;
@@ -180,108 +265,24 @@ fn run_module(
     Ok(())
 }
 
-async fn entry() -> Result<()> {
-    let root = PathBuf::from(
-        std::env::var_os("CARGO_MANIFEST_DIR")
-            .ok_or_else(|| anyhow!("missing CARGO_MANIFEST_DIR"))?,
-    );
+/// Find root path to use.
+fn find_root() -> Result<PathBuf> {
+    let mut current = std::env::current_dir()?;
 
-    let config_path = root.join("config.toml");
-    let config =
-        config::load(&config_path).with_context(|| config_path.to_string_lossy().into_owned())?;
+    loop {
+        if current.join(PROJECTS_TOML).is_file() {
+            return Ok(current);
+        }
 
-    let opts = Opts::try_parse()?;
-
-    let mut badges = Badges::new();
-
-    for badge in &config.badges {
-        match badge {
-            ConfigBadge::Github => {
-                badges.push(&GithubBadge);
-            }
-            ConfigBadge::CratesIo => {
-                badges.push(&CratesIoBadge);
-            }
-            ConfigBadge::DocsRs => {
-                badges.push(&DocsRsBadge);
-            }
-            ConfigBadge::GithubActions => {
-                badges.push(&GithubActionsBadge);
-            }
+        if !current.pop() {
+            return Err(anyhow!("missing projects directory"));
         }
     }
+}
 
-    let mut actions = Actions::default();
-    actions.latest("actions/checkout", "v3");
-    actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
-    actions.deny("actions-rs/cargo", "using `run` is less verbose and faster");
-
-    let cx = Ctxt {
-        root: &root,
-        config: &config,
-        badges: &badges,
-        actions: &actions,
-    };
-
-    match &opts.action {
-        Action::Run(run) => {
-            let gitmodules_path = root.join(".gitmodules");
-            let gitmodules_bytes;
-            let mut modules = Vec::new();
-
-            if gitmodules_path.is_file() {
-                gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
-
-                modules.extend(
-                    parse_git_modules(&gitmodules_bytes)
-                        .with_context(|| anyhow!("{}", gitmodules_path.display()))?,
-                );
-            } else {
-                modules.push(Module {
-                    name: "current",
-                    path: Some(RelativePath::new(".")),
-                    url: None,
-                    cargo_toml: None,
-                    krate: None,
-                    disabled: Default::default(),
-                });
-            }
-
-            let mut validation = Vec::new();
-            let mut urls = Urls::default();
-
-            for module in &modules {
-                run_module(&cx, run, module, &mut validation, &mut urls)?;
-            }
-
-            for validation in &validation {
-                validate(&cx, run, validation)?;
-            }
-
-            let o = std::io::stdout();
-            let mut o = o.lock();
-
-            for (url, test) in urls.bad_urls() {
-                let path = &test.path;
-                let (line, column, string) =
-                    temporary_line_fix(&test.file, test.range.start, test.line_offset)?;
-
-                if let Some(error) = &test.error {
-                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`: {error}")?;
-                } else {
-                    writeln!(o, "{path}:{line}:{column}: bad url: `{url}`")?;
-                }
-
-                writeln!(o, "{string}")?;
-            }
-
-            if run.url_checks {
-                url_checks(&mut o, urls).await?;
-            }
-        }
-    }
-
-    Ok(())
+/// Process module information from a git repository.
+fn module_from_git(root: &Path) -> Result<Module<'a>> {
+    Err(anyhow!("cannot get a module from .git repo"))
 }
 
 /// Report and apply a asingle validation.
@@ -462,61 +463,20 @@ fn build_readme(
     cx: &Ctxt<'_>,
     readme_path: &RelativePath,
     crate_path: &RelativePath,
-    repo: &str,
-    crate_name: &str,
+    params: CrateParams<'_>,
     validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
-    let params = ReadmeParams { repo, crate_name };
     let readme_path = readme_path.join(README_MD);
     let lib_rs = crate_path.join("src").join("lib.rs");
 
-    let readme = Readme::new(&readme_path, &lib_rs, cx.badges, &params);
+    let readme = Readme::new(&readme_path, &lib_rs, cx.badges, params, cx.config);
 
     readme
         .validate(cx.root, validation, urls)
         .with_context(|| anyhow!("{readme_path}: readme validation"))?;
 
     Ok(())
-}
-
-struct GithubBadge;
-
-impl Badge for GithubBadge {
-    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
-        let ReadmeParams { repo, .. } = params;
-        let badge_repo = repo.replace('-', "--");
-        Ok(format!("[<img alt=\"github\" src=\"https://img.shields.io/badge/github-{badge_repo}-8da0cb?style=for-the-badge&logo=github\" height=\"20\">]({GITHUB_COM}/{repo})"))
-    }
-}
-
-struct CratesIoBadge;
-
-impl Badge for CratesIoBadge {
-    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
-        let ReadmeParams { crate_name, .. } = params;
-        Ok(format!("[<img alt=\"crates.io\" src=\"https://img.shields.io/crates/v/{crate_name}.svg?style=for-the-badge&color=fc8d62&logo=rust\" height=\"20\">](https://crates.io/crates/{crate_name})"))
-    }
-}
-
-struct DocsRsBadge;
-
-impl Badge for DocsRsBadge {
-    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
-        const BADGE_IMAGE: &str = "data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K";
-        let ReadmeParams { crate_name, .. } = params;
-        let badge_crate_name = crate_name.replace('-', "--");
-        Ok(format!("[<img alt=\"docs.rs\" src=\"https://img.shields.io/badge/docs.rs-{badge_crate_name}-66c2a5?style=for-the-badge&logoColor=white&logo={BADGE_IMAGE}\" height=\"20\">]({DOCS_RS}/{crate_name})"))
-    }
-}
-
-struct GithubActionsBadge;
-
-impl Badge for GithubActionsBadge {
-    fn build(&self, params: &ReadmeParams<'_>) -> Result<String> {
-        let ReadmeParams { repo, .. } = params;
-        Ok(format!("[<img alt=\"build status\" src=\"https://img.shields.io/github/workflow/status/{repo}/CI/main?style=for-the-badge\" height=\"20\">]({GITHUB_COM}/{repo}/actions?query=branch%3Amain)"))
-    }
 }
 
 /// A git module.

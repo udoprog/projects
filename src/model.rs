@@ -9,12 +9,14 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 use pulldown_cmark::{LinkType, Options};
 use relative_path::{RelativePath, RelativePathBuf};
+use serde::Serialize;
 use toml_edit::Key;
 use url::Url;
 
 use crate::actions::Actions;
 use crate::badges::Badges;
 use crate::cargo::Manifest;
+use crate::config::Config;
 use crate::file::File;
 use crate::urls::Urls;
 use crate::workspace::Package;
@@ -532,17 +534,18 @@ enum RunIdentity {
 }
 
 /// Badge building parameters.
-#[derive(Debug, Clone)]
-pub(crate) struct ReadmeParams<'a> {
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct CrateParams<'a> {
     pub(crate) repo: &'a str,
-    pub(crate) crate_name: &'a str,
+    pub(crate) name: &'a str,
 }
 
 pub(crate) struct Readme<'a> {
     pub(crate) path: &'a RelativePath,
     pub(crate) lib_rs: &'a RelativePath,
     pub(crate) badges: &'a Badges<'a>,
-    pub(crate) params: &'a ReadmeParams<'a>,
+    pub(crate) crate_params: CrateParams<'a>,
+    pub(crate) config: &'a Config,
 }
 
 impl<'a> Readme<'a> {
@@ -550,14 +553,16 @@ impl<'a> Readme<'a> {
     pub(crate) fn new(
         path: &'a RelativePath,
         lib_rs: &'a RelativePath,
-        badges: &'a Badges<'a>,
-        params: &'a ReadmeParams<'a>,
+        badges: &'a Badges,
+        crate_params: CrateParams<'a>,
+        config: &'a Config,
     ) -> Self {
         Self {
             path,
             lib_rs,
             badges,
-            params,
+            crate_params,
+            config,
         }
     }
 
@@ -596,7 +601,7 @@ impl<'a> Readme<'a> {
                 });
             }
 
-            let readme_from_lib_rs = readme_from_lib_rs(&new_file, self.params)?;
+            let readme_from_lib_rs = readme_from_lib_rs(&new_file, self.crate_params)?;
 
             if *file != *new_file {
                 validation.push(Validation::MismatchedLibRs {
@@ -628,7 +633,7 @@ impl<'a> Readme<'a> {
         let mut new_file = File::new();
 
         for badge in self.badges.iter() {
-            let string = badge.build(self.params)?;
+            let string = badge.build(self.crate_params, self.config)?;
             new_file.push(format!("//! {string}").as_bytes());
         }
 
@@ -793,13 +798,13 @@ struct MarkdownChecks {
 }
 
 /// Generate a readme.
-fn readme_from_lib_rs(file: &File, params: &ReadmeParams<'_>) -> Result<File> {
+fn readme_from_lib_rs(file: &File, crate_params: CrateParams<'_>) -> Result<File> {
     let mut readme = File::new();
 
     let mut in_code_block = None::<bool>;
-    let crate_name = &params.crate_name;
+    let name = crate_params.name;
 
-    readme.push(format!("# {crate_name}").as_bytes());
+    readme.push(format!("# {name}").as_bytes());
     readme.push(b"");
 
     for line in file.lines() {
