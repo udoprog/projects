@@ -14,6 +14,7 @@ use crate::badges::Badges;
 use crate::file::{File, LineColumn};
 use crate::model::{work_cargo_toml, Ci, CrateParams, Readme, Validation};
 use crate::urls::{UrlError, Urls};
+use crate::workspace::Package;
 
 mod actions;
 mod badges;
@@ -239,7 +240,7 @@ fn run_module(
         build_readme(
             &cx,
             module_path,
-            &primary_crate.manifest_dir,
+            primary_crate,
             params.crate_params,
             validation,
             urls,
@@ -256,7 +257,7 @@ fn run_module(
                     build_readme(
                         cx,
                         &package.manifest_dir,
-                        &package.manifest_dir,
+                        package,
                         crate_params,
                         validation,
                         urls,
@@ -292,9 +293,6 @@ fn module_from_git(_: &Path) -> Result<Module<'static>> {
 /// Report and apply a asingle validation.
 fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
     Ok(match error {
-        Validation::MissingWorkflows { path } => {
-            println!("{path}: Missing workflows directory");
-        }
         Validation::MissingWorkflow { path, candidates } => {
             println!("{path}: Missing workflow");
 
@@ -307,7 +305,15 @@ fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
                     println!("{path}: Rename from {from}",);
                     std::fs::rename(from.to_path(cx.root), path.to_path(cx.root))?;
                 } else {
-                    std::fs::write(path.to_path(cx.root), &cx.default_workflow)?;
+                    let path = path.to_path(cx.root);
+
+                    if let Some(parent) = path.parent() {
+                        if !parent.is_dir() {
+                            std::fs::create_dir_all(&parent)?;
+                        }
+                    }
+
+                    std::fs::write(path, &cx.default_workflow)?;
                 }
             }
         }
@@ -466,13 +472,13 @@ fn temporary_line_fix(file: &File, pos: usize, line_offset: usize) -> Result<(us
 fn build_readme(
     cx: &Ctxt<'_>,
     readme_path: &RelativePath,
-    crate_path: &RelativePath,
+    package: &Package,
     params: CrateParams<'_>,
     validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
     let readme_path = readme_path.join(README_MD);
-    let lib_rs = crate_path.join("src").join("lib.rs");
+    let lib_rs = package.lib_rs();
 
     let readme = Readme::new(&readme_path, &lib_rs, cx.badges, params, cx.config);
 

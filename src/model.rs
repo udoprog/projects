@@ -51,7 +51,9 @@ cargo_issues! {
     WrongPackageDocumentation => write!(f, "package.documentation: wrong"),
     PackageDescription => write!(f, "package.description: missing"),
     PackageCategories => write!(f, "package.categories: missing"),
+    PackageCategoriesNotSorted => write!(f, "package.categories: not sorted"),
     PackageKeywords => write!(f, "package.keywords: missing"),
+    PackageKeywordsNotSorted => write!(f, "package.keywords: not sorted"),
     PackageAuthorsEmpty => write!(f, "authors: empty"),
     PackageDependenciesEmpty => write!(f, "dependencies: empty"),
     PackageDevDependenciesEmpty => write!(f, "dev-dependencies: empty"),
@@ -100,12 +102,10 @@ cargo_keys! {
     License => "license",
     Keywords => "keywords",
     Categories => "categories",
+    Resolver => "resolver",
 }
 
 pub(crate) enum Validation {
-    MissingWorkflows {
-        path: RelativePathBuf,
-    },
     DeprecatedWorkflow {
         path: RelativePathBuf,
     },
@@ -207,8 +207,13 @@ impl<'a> Ci<'a> {
     }
 
     /// Get candidates.
-    fn candidates(&self, root: &Path) -> Result<Box<[RelativePathBuf]>> {
-        let dir = fs::read_dir(self.path.to_path(root))?;
+    fn candidates(&self, root: &Path) -> io::Result<Box<[RelativePathBuf]>> {
+        let dir = match fs::read_dir(self.path.to_path(root)) {
+            Ok(dir) => dir,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Box::from([])),
+            Err(e) => return Err(e.into()),
+        };
+
         let mut paths = Vec::new();
 
         for e in dir {
@@ -224,14 +229,6 @@ impl<'a> Ci<'a> {
 
     /// Validate the current model.
     pub(crate) fn validate(&self, root: &Path, validation: &mut Vec<Validation>) -> Result<()> {
-        if !self.path.to_path(root).is_dir() {
-            validation.push(Validation::MissingWorkflows {
-                path: self.path.to_owned(),
-            });
-
-            return Ok(());
-        }
-
         let deprecated_yml = self.path.join("rust.yml");
         let expected_path = self.path.join("ci.yml");
 
@@ -948,21 +945,45 @@ pub(crate) fn work_cargo_toml(
         issues.push(CargoIssue::PackageDescription);
     }
 
-    if package
+    if let Some(categories) = package
         .manifest
         .categories()?
         .filter(|value| !value.is_empty())
-        .is_none()
     {
+        let categories = categories
+            .iter()
+            .flat_map(|v| Some(v.as_str()?.to_owned()))
+            .collect::<Vec<_>>();
+        let mut sorted = categories.clone();
+        sorted.sort();
+
+        if categories != sorted {
+            issues.push(CargoIssue::PackageCategoriesNotSorted);
+            changed = true;
+            modified_manifest.insert_categories(sorted)?;
+        }
+    } else {
         issues.push(CargoIssue::PackageCategories);
     }
 
-    if package
+    if let Some(keywords) = package
         .manifest
         .keywords()?
         .filter(|value| !value.is_empty())
-        .is_none()
     {
+        let keywords = keywords
+            .iter()
+            .flat_map(|v| Some(v.as_str()?.to_owned()))
+            .collect::<Vec<_>>();
+        let mut sorted = keywords.clone();
+        sorted.sort();
+
+        if keywords != sorted {
+            issues.push(CargoIssue::PackageKeywordsNotSorted);
+            changed = true;
+            modified_manifest.insert_keywords(sorted)?;
+        }
+    } else {
         issues.push(CargoIssue::PackageKeywords);
     }
 
@@ -996,7 +1017,7 @@ pub(crate) fn work_cargo_toml(
     }
 
     {
-        let package = modified_manifest.package()?;
+        let package = modified_manifest.ensure_package()?;
         let mut keys = Vec::new();
 
         for (key, _) in package.iter() {

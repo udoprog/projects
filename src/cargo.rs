@@ -19,7 +19,7 @@ macro_rules! field {
         }
 
         pub(crate) fn $insert(&mut self, $get: &str) -> Result<()> {
-            let package = self.package_mut()?;
+            let package = self.ensure_package_mut()?;
             package.insert(
                 $field,
                 Item::Value(Value::String(Formatted::new(String::from($get)))),
@@ -37,6 +37,26 @@ macro_rules! dependencies {
 
         pub(crate) fn $remove(&mut self) {
             self.doc.remove($field);
+        }
+    };
+}
+
+macro_rules! insert_package_list {
+    ($insert:ident, $name:literal) => {
+        pub(crate) fn $insert<I>(&mut self, iter: I) -> Result<()>
+        where
+            I: IntoIterator<Item = String>,
+        {
+            let package = self.ensure_package_mut()?;
+
+            let mut array = Array::new();
+
+            for keyword in iter {
+                array.push(keyword);
+            }
+
+            package.insert($name, Item::Value(Value::Array(array)));
+            Ok(())
         }
     };
 }
@@ -66,7 +86,7 @@ impl Manifest {
     /// Test if package should or should not be published.
     pub(crate) fn is_publish(&self) -> Result<bool> {
         Ok(self
-            .package()?
+            .ensure_package()?
             .get("publish")
             .and_then(Item::as_bool)
             .unwrap_or(true))
@@ -78,23 +98,6 @@ impl Manifest {
         Some(Workspace { table })
     }
 
-    field!(license, insert_license, "license");
-    field!(readme, insert_readme, "readme");
-    field!(repository, insert_repository, "repository");
-    field!(homepage, insert_homepage, "homepage");
-    field!(documentation, insert_documentation, "documentation");
-    dependencies!(dependencies, remove_dependencies, "dependencies");
-    dependencies!(
-        dev_dependencies,
-        remove_dev_dependencies,
-        "dev-dependencies"
-    );
-    dependencies!(
-        build_dependencies,
-        remove_build_dependencies,
-        "build-dependencies"
-    );
-
     /// Get authors.
     pub(crate) fn authors(&self) -> Result<Option<&Array>> {
         self.package_value("authors", Item::as_array)
@@ -102,7 +105,7 @@ impl Manifest {
 
     /// Insert authors.
     pub(crate) fn insert_authors(&mut self, authors: Vec<String>) -> Result<()> {
-        let package = self.package_mut()?;
+        let package = self.ensure_package_mut()?;
         let mut array = Array::new();
 
         for author in authors {
@@ -133,7 +136,7 @@ impl Manifest {
     where
         F: FnMut(&Key, &Item, &Key, &Item) -> Ordering,
     {
-        let package = self.package_mut()?;
+        let package = self.ensure_package_mut()?;
         package.sort_values_by(compare);
         Ok(())
     }
@@ -150,7 +153,7 @@ impl Manifest {
 
     /// Get the name of the crate.
     pub(crate) fn crate_name(&self) -> Result<&str> {
-        let package = self.package()?;
+        let package = self.ensure_package()?;
 
         let name = package
             .get("name")
@@ -198,15 +201,20 @@ impl Manifest {
     }
 
     /// Access `[package]` section.
-    pub(crate) fn package(&self) -> Result<&Table> {
+    pub(crate) fn ensure_package(&self) -> Result<&Table> {
         self.doc
             .get("package")
             .and_then(|table| table.as_table())
             .ok_or_else(|| anyhow!("missing `[package]`"))
     }
 
+    /// Access `[lib]` section.
+    pub(crate) fn lib(&self) -> Option<&Table> {
+        self.doc.get("lib").and_then(|table| table.as_table())
+    }
+
     /// Access `[package]` section mutably.
-    fn package_mut(&mut self) -> Result<&mut Table> {
+    fn ensure_package_mut(&mut self) -> Result<&mut Table> {
         self.doc
             .get_mut("package")
             .and_then(|table| table.as_table_mut())
@@ -218,8 +226,27 @@ impl Manifest {
     where
         T: FnOnce(&Item) -> Option<&O>,
     {
-        Ok(self.package()?.get(name).and_then(map))
+        Ok(self.ensure_package()?.get(name).and_then(map))
     }
+
+    field!(license, insert_license, "license");
+    field!(readme, insert_readme, "readme");
+    field!(repository, insert_repository, "repository");
+    field!(homepage, insert_homepage, "homepage");
+    field!(documentation, insert_documentation, "documentation");
+    dependencies!(dependencies, remove_dependencies, "dependencies");
+    dependencies!(
+        dev_dependencies,
+        remove_dev_dependencies,
+        "dev-dependencies"
+    );
+    dependencies!(
+        build_dependencies,
+        remove_build_dependencies,
+        "build-dependencies"
+    );
+    insert_package_list!(insert_keywords, "keywords");
+    insert_package_list!(insert_categories, "categories");
 }
 
 /// Open a `Cargo.toml`.
