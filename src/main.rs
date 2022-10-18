@@ -58,11 +58,14 @@ async fn entry() -> Result<()> {
     actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
     actions.deny("actions-rs/cargo", "using `run` is less verbose and faster");
 
+    let default_workflow = config.default_workflow.render(&config.global_render())?;
+
     let cx = Ctxt {
         root: &root,
         config: &config,
         badges: &badges,
         actions: &actions,
+        default_workflow,
     };
 
     match &opts.action {
@@ -150,6 +153,7 @@ struct Ctxt<'a> {
     config: &'a Config,
     badges: &'a Badges<'a>,
     actions: &'a Actions<'a>,
+    default_workflow: String,
 }
 
 /// Run a single module.
@@ -195,7 +199,7 @@ fn run_module(
         None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
     };
 
-    let params = cx.config.render_params(CrateParams {
+    let params = cx.config.per_crate_render(CrateParams {
         repo: &repo,
         name: primary_crate.manifest.crate_name()?,
     });
@@ -281,7 +285,7 @@ fn find_root() -> Result<PathBuf> {
 }
 
 /// Process module information from a git repository.
-fn module_from_git(root: &Path) -> Result<Module<'a>> {
+fn module_from_git(_: &Path) -> Result<Module<'static>> {
     Err(anyhow!("cannot get a module from .git repo"))
 }
 
@@ -303,7 +307,7 @@ fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
                     println!("{path}: Rename from {from}",);
                     std::fs::rename(from.to_path(cx.root), path.to_path(cx.root))?;
                 } else {
-                    std::fs::write(path.to_path(cx.root), &cx.config.default_workflow)?;
+                    std::fs::write(path.to_path(cx.root), &cx.default_workflow)?;
                 }
             }
         }
