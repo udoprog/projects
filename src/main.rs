@@ -184,6 +184,8 @@ async fn entry() -> Result<()> {
 
             let client = Client::builder().build()?;
 
+            let limit = cmd.limit.unwrap_or(1).max(1).to_string();
+
             for module in &modules {
                 if should_skip(&cmd.modules, module) {
                     continue;
@@ -195,6 +197,7 @@ async fn entry() -> Result<()> {
 
                 let current_dir = path.to_path(&root);
                 let sha = head_commit(&current_dir).with_context(|| anyhow!("{}", module.name))?;
+                let sha = sha.trim();
 
                 let url = format!(
                     "https://api.github.com/repos/{owner}/{repo}/actions/workflows/ci.yml/runs"
@@ -206,7 +209,7 @@ async fn entry() -> Result<()> {
                     .request(Method::GET, url)
                     .header(header::USER_AGENT, "udoprog projects")
                     .header(header::AUTHORIZATION, &authorisation)
-                    .query(&[("exclude_pull_requests", "true"), ("per_page", "1")]);
+                    .query(&[("exclude_pull_requests", "true"), ("per_page", &limit)]);
 
                 println!("{}:", module.name);
                 let res = req.send().await?;
@@ -228,26 +231,17 @@ async fn entry() -> Result<()> {
 
                 let runs: WorkflowRuns = WorkflowRuns::deserialize(runs.into_deserializer())?;
 
-                let [run, ..] = &runs.workflow_runs[..] else {
-                    return Err(anyhow!("  missing run"));
-                };
+                for run in runs.workflow_runs {
+                    let updated_at = run.updated_at.with_timezone(&Local);
 
-                let updated_at = run.updated_at.with_timezone(&Local);
+                    let head = if sha == run.head_sha { "* " } else { "  " };
 
-                println!(
-                    "  {}: status: {}, conclusion: {} ({}) at {updated_at}",
-                    run.head_branch,
-                    run.status,
-                    run.conclusion,
-                    short(&run.head_sha),
-                );
-
-                if sha != run.head_sha {
-                    tracing::warn!(
-                        "  {}: sha mismatch (build: {}) != (current: {})",
-                        module.name,
-                        short(&run.head_sha),
-                        short(&sha)
+                    println!(
+                        " {head}{sha} {branch}: {updated_at}: status: {}, conclusion: {}",
+                        run.status,
+                        run.conclusion,
+                        branch = run.head_branch,
+                        sha = short(&run.head_sha),
                     );
                 }
             }
@@ -325,6 +319,9 @@ struct Status {
     /// Output raw JSON response.
     #[arg(long)]
     raw_json: bool,
+    /// Limit number of workspace runs to inspect.
+    #[arg(long)]
+    limit: Option<u32>,
 }
 
 #[derive(Subcommand)]
