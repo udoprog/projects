@@ -10,6 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use pulldown_cmark::{LinkType, Options};
 use relative_path::{RelativePath, RelativePathBuf};
 use serde::Serialize;
+use serde_yaml::Value;
 use toml_edit::Key;
 use url::Url;
 
@@ -105,7 +106,7 @@ cargo_keys! {
     Resolver => "resolver",
 }
 
-pub(crate) enum Validation {
+pub(crate) enum Validation<'a> {
     DeprecatedWorkflow {
         path: RelativePathBuf,
     },
@@ -178,6 +179,21 @@ pub(crate) enum Validation {
         cargo: Option<Manifest>,
         issues: Vec<CargoIssue>,
     },
+    ActionMissingKey {
+        path: RelativePathBuf,
+        key: &'a str,
+        expected: &'a str,
+        actual: Option<serde_yaml::Value>,
+    },
+    ActionOnMissingBranch {
+        path: RelativePathBuf,
+        key: &'a str,
+        branch: &'a str,
+    },
+    ActionExpectedEmptyMapping {
+        path: RelativePathBuf,
+        key: &'a str,
+    },
 }
 
 pub(crate) struct Ci<'a> {
@@ -228,7 +244,7 @@ impl<'a> Ci<'a> {
     }
 
     /// Validate the current model.
-    pub(crate) fn validate(&self, root: &Path, validation: &mut Vec<Validation>) -> Result<()> {
+    pub(crate) fn validate(&self, root: &Path, validation: &mut Vec<Validation<'_>>) -> Result<()> {
         let deprecated_yml = self.path.join("rust.yml");
         let expected_path = self.path.join("ci.yml");
 
@@ -287,8 +303,12 @@ impl<'a> Ci<'a> {
         &self,
         path: &RelativePath,
         value: &serde_yaml::Value,
-        validation: &mut Vec<Validation>,
+        validation: &mut Vec<Validation<'_>>,
     ) -> Result<()> {
+        if let Some(value) = value.get("on") {
+            validate_on(value, validation, path);
+        }
+
         if let Some(jobs) = value.get("jobs").and_then(|v| v.as_mapping()) {
             for (_, job) in jobs {
                 for action in job
@@ -345,7 +365,7 @@ impl<'a> Ci<'a> {
         &self,
         path: &RelativePath,
         job: &serde_yaml::Value,
-        validation: &mut Vec<Validation>,
+        validation: &mut Vec<Validation<'_>>,
     ) {
         let mut cargo_combos = Vec::new();
         let features = self.manifest.features();
@@ -468,7 +488,7 @@ impl<'a> Ci<'a> {
         &self,
         path: &RelativePath,
         cargos: &[Cargo],
-        validation: &mut Vec<Validation>,
+        validation: &mut Vec<Validation<'_>>,
     ) -> bool {
         let mut all_features = false;
         let mut empty_features = false;
@@ -500,6 +520,68 @@ impl<'a> Ci<'a> {
         }
 
         false
+    }
+}
+
+fn validate_on(value: &Value, validation: &mut Vec<Validation<'_>>, path: &RelativePath) {
+    let Value::Mapping(m) = value else {
+        validation.push(Validation::ActionMissingKey {
+            path: path.to_owned(),
+            key: "on",
+            expected: "mapping",
+            actual: Some(value.clone()),
+        });
+
+        return;
+    };
+
+    match m.get("pull_request") {
+        Some(Value::Mapping(m)) => {
+            if !m.is_empty() {
+                validation.push(Validation::ActionExpectedEmptyMapping {
+                    path: path.to_owned(),
+                    key: "on.pull_request",
+                });
+            }
+        }
+        value => {
+            validation.push(Validation::ActionMissingKey {
+                path: path.to_owned(),
+                key: "on.pull_request",
+                expected: "mapping",
+                actual: value.cloned(),
+            });
+        }
+    }
+
+    match m.get("push") {
+        Some(Value::Mapping(m)) => match m.get("branches") {
+            Some(Value::Sequence(s)) => {
+                if !s.iter().flat_map(|v| v.as_str()).any(|b| b == "main") {
+                    validation.push(Validation::ActionOnMissingBranch {
+                        path: path.to_owned(),
+                        key: "on.push.branches",
+                        branch: "main",
+                    });
+                }
+            }
+            value => {
+                validation.push(Validation::ActionMissingKey {
+                    path: path.to_owned(),
+                    key: "on.push.branches",
+                    expected: "sequence",
+                    actual: value.cloned(),
+                });
+            }
+        },
+        value => {
+            validation.push(Validation::ActionMissingKey {
+                path: path.to_owned(),
+                key: "on.push",
+                expected: "mapping",
+                actual: value.cloned(),
+            });
+        }
     }
 }
 
@@ -567,7 +649,7 @@ impl<'a> Readme<'a> {
     pub(crate) fn validate(
         &self,
         root: &Path,
-        validation: &mut Vec<Validation>,
+        validation: &mut Vec<Validation<'_>>,
         urls: &mut Urls,
     ) -> Result<()> {
         if !self.path.to_path(root).is_file() {
@@ -881,7 +963,7 @@ pub(crate) struct UpdateParams<'a> {
 /// Validate the main `Cargo.toml`.
 pub(crate) fn work_cargo_toml(
     package: &Package,
-    validation: &mut Vec<Validation>,
+    validation: &mut Vec<Validation<'_>>,
     update: &UpdateParams<'_>,
 ) -> Result<()> {
     let mut modified_manifest = package.manifest.clone();

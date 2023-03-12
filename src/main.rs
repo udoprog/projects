@@ -58,6 +58,10 @@ async fn entry() -> Result<()> {
     actions.latest("actions/checkout", "v3");
     actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
     actions.deny("actions-rs/cargo", "using `run` is less verbose and faster");
+    actions.deny(
+        "actions-rs/toolchain",
+        "using `run` is less verbose and faster",
+    );
 
     let default_workflow = config.default_workflow.render(&config.global_render())?;
 
@@ -410,6 +414,30 @@ fn validate(cx: &Ctxt<'_>, run: &Run, error: &Validation) -> Result<()> {
                     modified_cargo.save_to(path.to_path(cx.root))?;
                 }
             }
+        }
+        Validation::ActionMissingKey {
+            path,
+            key,
+            expected,
+            actual,
+        } => {
+            println!("{path}: {key}: action missing key, expected {expected}");
+
+            match actual {
+                Some(value) => {
+                    println!("  actual:");
+                    serde_yaml::to_writer(std::io::stdout(), value)?;
+                }
+                None => {
+                    println!("  actual: *missing value*");
+                }
+            }
+        }
+        Validation::ActionOnMissingBranch { path, key, branch } => {
+            println!("{path}: {key}: action missing branch `{branch}`");
+        }
+        Validation::ActionExpectedEmptyMapping { path, key } => {
+            println!("{path}: {key}: action expected empty mapping");
         }
     })
 }
