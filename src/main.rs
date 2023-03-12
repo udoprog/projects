@@ -4,10 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Local, Utc};
 use clap::{Parser, Subcommand};
 use config::Config;
 use model::UpdateParams;
 use relative_path::RelativePath;
+use reqwest::{header, Client, Method};
+use serde::de::IntoDeserializer;
+use serde::Deserialize;
 use url::Url;
 
 use crate::actions::{Actions, ActionsCheck};
@@ -33,11 +37,19 @@ const PROJECTS_TOML: &str = "Projects.toml";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
     entry().await
 }
 
 async fn entry() -> Result<()> {
     let root = find_root()?;
+
+    let auth = std::fs::read_to_string(".auth").with_context(|| anyhow!(".auth"))?;
+    let auth = auth.trim();
 
     let template = templates::Templating::new()?;
 
@@ -152,9 +164,119 @@ async fn entry() -> Result<()> {
                 println!("{status}");
             }
         }
+        Action::Status(cmd) => {
+            #[derive(Debug, Deserialize)]
+            struct Workflow {
+                status: String,
+                conclusion: String,
+                head_branch: String,
+                head_sha: String,
+                updated_at: DateTime<Utc>,
+            }
+
+            #[derive(Debug, Deserialize)]
+            struct WorkflowRuns {
+                workflow_runs: Vec<Workflow>,
+            }
+
+            let mut buf = Vec::new();
+            let modules = load_gitmodules(&root, &mut buf)?;
+
+            let client = Client::builder().build()?;
+
+            for module in &modules {
+                if should_skip(&cmd.modules, module) {
+                    continue;
+                }
+
+                let (Some(path), Some((owner, repo))) = (module.path, module.repo().and_then(|repo| repo.split_once('/'))) else {
+                    continue;
+                };
+
+                let current_dir = path.to_path(&root);
+                let sha = head_commit(&current_dir).with_context(|| anyhow!("{}", module.name))?;
+
+                let url = format!(
+                    "https://api.github.com/repos/{owner}/{repo}/actions/workflows/ci.yml/runs"
+                );
+
+                let authorisation = format!("Bearer {auth}");
+
+                let req = client
+                    .request(Method::GET, url)
+                    .header(header::USER_AGENT, "udoprog projects")
+                    .header(header::AUTHORIZATION, &authorisation)
+                    .query(&[("exclude_pull_requests", "true"), ("per_page", "1")]);
+
+                println!("{}:", module.name);
+                let res = req.send().await?;
+
+                tracing::trace!("  {:?}", res.headers());
+
+                if !res.status().is_success() {
+                    println!("  {}", res.text().await?);
+                    continue;
+                }
+
+                let runs: serde_json::Value = res.json().await?;
+
+                if cmd.raw_json {
+                    let mut out = std::io::stdout();
+                    serde_json::to_writer_pretty(&mut out, &runs)?;
+                    writeln!(out)?;
+                }
+
+                let runs: WorkflowRuns = WorkflowRuns::deserialize(runs.into_deserializer())?;
+
+                let [run, ..] = &runs.workflow_runs[..] else {
+                    return Err(anyhow!("  missing run"));
+                };
+
+                let updated_at = run.updated_at.with_timezone(&Local);
+
+                println!(
+                    "  {}: status: {}, conclusion: {} ({}) at {updated_at}",
+                    run.head_branch,
+                    run.status,
+                    run.conclusion,
+                    short(&run.head_sha),
+                );
+
+                if sha != run.head_sha {
+                    tracing::warn!(
+                        "  {}: sha mismatch (build: {}) != (current: {})",
+                        module.name,
+                        short(&run.head_sha),
+                        short(&sha)
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+fn head_commit(current_dir: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .stdout(Stdio::piped())
+        .current_dir(&current_dir)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow!("status: {}", output.status));
+    }
+
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+fn short(string: &str) -> impl std::fmt::Display + '_ {
+    if let Some(sha) = string.get(..7) {
+        return sha;
+    }
+
+    string
 }
 
 fn load_gitmodules<'a>(root: &Path, buf: &'a mut Vec<u8>) -> Result<Vec<Module<'a>>> {
@@ -195,10 +317,24 @@ struct For {
     command: Vec<String>,
 }
 
+#[derive(Default, Parser)]
+struct Status {
+    /// Filter modules.
+    #[arg(long, short)]
+    modules: Vec<String>,
+    /// Output raw JSON response.
+    #[arg(long)]
+    raw_json: bool,
+}
+
 #[derive(Subcommand)]
 enum Action {
+    /// Run checks for each repo.
     Run(Run),
+    /// Run a command for each repo.
     For(For),
+    /// Get the build status for each repo.
+    Status(Status),
 }
 
 #[derive(Default, Parser)]
@@ -233,17 +369,13 @@ fn run_module(
         return Ok(());
     }
 
-    let (module_path, module_url) = if let (Some(path), Some(url)) = (module.path, &module.url) {
-        (path, url)
-    } else {
+    let (Some(module_path), Some(module_url), Some(repo)) = (module.path, &module.url, module.repo()) else {
         println!(
             ".gitmodules: {name}: missing `path` and/or `url`",
             name = module.name
         );
         return Ok(());
     };
-
-    let repo = String::from(module_url.path().trim_matches('/'));
 
     let cargo_toml = match module.cargo_toml {
         Some(cargo_toml) => module_path.join(cargo_toml),
@@ -592,6 +724,17 @@ impl Module<'_> {
     /// Test if a feature is disabled.
     fn is_enabled(&self, feature: &str) -> bool {
         !self.disabled.contains(feature)
+    }
+
+    /// Repo name.
+    fn repo(&self) -> Option<&str> {
+        let url = self.url.as_ref()?;
+
+        let Some("github.com") = url.domain() else {
+            return None;
+        };
+
+        Some(url.path().trim_matches('/'))
     }
 }
 
