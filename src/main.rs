@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
@@ -74,31 +75,19 @@ async fn entry() -> Result<()> {
     };
 
     match &opts.action {
-        Action::Run(run) => {
-            let gitmodules_path = root.join(".gitmodules");
-            let gitmodules_bytes;
-            let mut modules = Vec::new();
-
-            if gitmodules_path.is_file() {
-                gitmodules_bytes = std::fs::read(root.join(".gitmodules"))?;
-
-                modules.extend(
-                    parse_git_modules(&gitmodules_bytes)
-                        .with_context(|| anyhow!("{}", gitmodules_path.display()))?,
-                );
-            } else {
-                modules.push(module_from_git(&root)?);
-            }
+        Action::Run(cmd) => {
+            let mut buf = Vec::new();
+            let modules = load_gitmodules(&root, &mut buf)?;
 
             let mut validation = Vec::new();
             let mut urls = Urls::default();
 
             for module in &modules {
-                run_module(&cx, run, module, &mut validation, &mut urls)?;
+                run_module(&cx, cmd, module, &mut validation, &mut urls)?;
             }
 
             for validation in &validation {
-                validate(&cx, run, validation)?;
+                validate(&cx, cmd, validation)?;
             }
 
             let o = std::io::stdout();
@@ -118,13 +107,71 @@ async fn entry() -> Result<()> {
                 writeln!(o, "{string}")?;
             }
 
-            if run.url_checks {
+            if cmd.url_checks {
                 url_checks(&mut o, urls).await?;
+            }
+        }
+        Action::For(cmd) => {
+            let mut buf = Vec::new();
+            let modules = load_gitmodules(&root, &mut buf)?;
+
+            let command_repr = cmd.command.join(" ");
+
+            let Some((command, args)) = cmd.command.split_first() else {
+                return Err(anyhow!("missing command"));
+            };
+
+            for module in &modules {
+                if should_skip(&cmd.modules, module) {
+                    continue;
+                }
+
+                let Some(path) = module.path else {
+                    continue;
+                };
+
+                let current_dir = path.to_path(&root);
+
+                if cmd.cached {
+                    let status = Command::new("git")
+                        .args(["diff", "--cached", "--exit-code"])
+                        .stdout(Stdio::null())
+                        .current_dir(&current_dir)
+                        .status()?;
+
+                    if status.success() {
+                        continue;
+                    }
+                }
+
+                println!("{path}: {command_repr}");
+                let status = Command::new(command)
+                    .args(args)
+                    .current_dir(&current_dir)
+                    .status()?;
+                println!("{status}");
             }
         }
     }
 
     Ok(())
+}
+
+fn load_gitmodules<'a>(root: &Path, buf: &'a mut Vec<u8>) -> Result<Vec<Module<'a>>> {
+    let gitmodules_path = root.join(".gitmodules");
+    let mut modules = Vec::new();
+
+    if gitmodules_path.is_file() {
+        *buf = std::fs::read(root.join(".gitmodules"))?;
+
+        modules.extend(
+            parse_git_modules(buf).with_context(|| anyhow!("{}", gitmodules_path.display()))?,
+        );
+    } else {
+        modules.push(module_from_git(&root)?);
+    }
+
+    Ok(modules)
 }
 
 #[derive(Default, Parser)]
@@ -136,9 +183,22 @@ struct Run {
     filters: Vec<String>,
 }
 
+#[derive(Default, Parser)]
+struct For {
+    /// Only run for git repos which have cached changes.
+    #[arg(long)]
+    cached: bool,
+    /// Filter modules.
+    #[arg(long, short)]
+    modules: Vec<String>,
+    /// Command to run.
+    command: Vec<String>,
+}
+
 #[derive(Subcommand)]
 enum Action {
     Run(Run),
+    For(For),
 }
 
 #[derive(Default, Parser)]
@@ -169,12 +229,7 @@ fn run_module(
     validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
-    if !run.filters.is_empty()
-        && !run
-            .filters
-            .iter()
-            .all(|filter| module.name.contains(filter))
-    {
+    if should_skip(&run.filters, module) {
         return Ok(());
     }
 
@@ -272,6 +327,11 @@ fn run_module(
     }
 
     Ok(())
+}
+
+/// Test if module should be skipped.
+fn should_skip(filters: &[String], module: &Module) -> bool {
+    !filters.is_empty() && !filters.iter().all(|filter| module.name.contains(filter))
 }
 
 /// Find root path to use.

@@ -1,4 +1,4 @@
-name: {{config.job_name}}
+name: CI
 
 on:
   pull_request: {}
@@ -12,6 +12,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - run: rustup toolchain install stable --profile minimal
-    - run: rustup default stable
-    - run: cargo build
-    - run: cargo test
+    - run: cargo +stable build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - run: rustup toolchain install stable --profile minimal
+    - run: cargo +stable test

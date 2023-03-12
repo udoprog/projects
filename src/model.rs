@@ -106,6 +106,20 @@ cargo_keys! {
     Resolver => "resolver",
 }
 
+pub(crate) enum ActionExpected {
+    Sequence,
+    Mapping,
+}
+
+impl fmt::Display for ActionExpected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActionExpected::Sequence => write!(f, "sequence"),
+            ActionExpected::Mapping => write!(f, "mapping"),
+        }
+    }
+}
+
 pub(crate) enum Validation<'a> {
     DeprecatedWorkflow {
         path: RelativePathBuf,
@@ -182,7 +196,7 @@ pub(crate) enum Validation<'a> {
     ActionMissingKey {
         path: RelativePathBuf,
         key: &'a str,
-        expected: &'a str,
+        expected: ActionExpected,
         actual: Option<serde_yaml::Value>,
     },
     ActionOnMissingBranch {
@@ -528,7 +542,7 @@ fn validate_on(value: &Value, validation: &mut Vec<Validation<'_>>, path: &Relat
         validation.push(Validation::ActionMissingKey {
             path: path.to_owned(),
             key: "on",
-            expected: "mapping",
+            expected: ActionExpected::Mapping,
             actual: Some(value.clone()),
         });
 
@@ -548,7 +562,7 @@ fn validate_on(value: &Value, validation: &mut Vec<Validation<'_>>, path: &Relat
             validation.push(Validation::ActionMissingKey {
                 path: path.to_owned(),
                 key: "on.pull_request",
-                expected: "mapping",
+                expected: ActionExpected::Mapping,
                 actual: value.cloned(),
             });
         }
@@ -569,7 +583,7 @@ fn validate_on(value: &Value, validation: &mut Vec<Validation<'_>>, path: &Relat
                 validation.push(Validation::ActionMissingKey {
                     path: path.to_owned(),
                     key: "on.push.branches",
-                    expected: "sequence",
+                    expected: ActionExpected::Sequence,
                     actual: value.cloned(),
                 });
             }
@@ -578,7 +592,7 @@ fn validate_on(value: &Value, validation: &mut Vec<Validation<'_>>, path: &Relat
             validation.push(Validation::ActionMissingKey {
                 path: path.to_owned(),
                 key: "on.push",
-                expected: "mapping",
+                expected: ActionExpected::Mapping,
                 actual: value.cloned(),
             });
         }
