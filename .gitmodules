@@ -84,3 +84,6 @@
 [submodule "repos/ontv"]
 	path = repos/ontv
 	url = https://github.com/udoprog/ontv
+[submodule "repos/rune"]
+	path = repos/rune
+	url = https://github.com/rune-rs/rune
