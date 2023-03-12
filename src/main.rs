@@ -168,7 +168,8 @@ async fn entry() -> Result<()> {
             #[derive(Debug, Deserialize)]
             struct Workflow {
                 status: String,
-                conclusion: String,
+                #[serde(default)]
+                conclusion: Option<String>,
                 head_branch: String,
                 head_sha: String,
                 updated_at: DateTime<Utc>,
@@ -211,7 +212,12 @@ async fn entry() -> Result<()> {
                     .header(header::AUTHORIZATION, &authorisation)
                     .query(&[("exclude_pull_requests", "true"), ("per_page", &limit)]);
 
-                println!("{}:", module.name);
+                if let Some(url) = &module.url {
+                    println!("{}: {url}", module.name);
+                } else {
+                    println!("{}: *no url*", module.name);
+                }
+
                 let res = req.send().await?;
 
                 tracing::trace!("  {:?}", res.headers());
@@ -239,7 +245,7 @@ async fn entry() -> Result<()> {
                     println!(
                         " {head}{sha} {branch}: {updated_at}: status: {}, conclusion: {}",
                         run.status,
-                        run.conclusion,
+                        run.conclusion.as_deref().unwrap_or("*in progress*"),
                         branch = run.head_branch,
                         sha = short(&run.head_sha),
                     );
