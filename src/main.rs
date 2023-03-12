@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
 async fn entry() -> Result<()> {
     let root = find_root()?;
 
-    let auth = std::fs::read_to_string(".auth").with_context(|| anyhow!(".auth"))?;
+    let auth = std::fs::read_to_string(root.join(".auth")).with_context(|| anyhow!(".auth"))?;
     let auth = auth.trim();
 
     let template = templates::Templating::new()?;
