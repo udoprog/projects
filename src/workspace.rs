@@ -108,15 +108,18 @@ pub(crate) struct Package {
 
 impl Package {
     /// Find the location of the entrypoint `lib.rs`.
-    pub(crate) fn lib_rs(&self) -> RelativePathBuf {
+    pub(crate) fn entries(&self) -> Vec<RelativePathBuf> {
         if let Some(path) = self
             .manifest
             .lib()
             .and_then(|lib| lib.get("path").and_then(|p| p.as_str()))
         {
-            self.manifest_dir.join(path)
+            vec![self.manifest_dir.join(path)]
         } else {
-            self.manifest_dir.join("src").join("lib.rs")
+            vec![
+                self.manifest_dir.join("src").join("lib.rs"),
+                self.manifest_dir.join("src").join("main.rs"),
+            ]
         }
     }
 }

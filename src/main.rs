@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Local, Utc};
 use clap::{Parser, Subcommand};
 use config::Config;
@@ -723,9 +723,18 @@ fn build_readme(
     urls: &mut Urls,
 ) -> Result<()> {
     let readme_path = readme_path.join(README_MD);
-    let lib_rs = package.lib_rs();
 
-    let readme = Readme::new(name, &readme_path, &lib_rs, cx.badges, params, cx.config);
+    let entry = 'entry: {
+        for entry in package.entries() {
+            if entry.to_path(&cx.root).is_file() {
+                break 'entry entry;
+            }
+        }
+
+        bail!("{name}: missing existing entrypoint")
+    };
+
+    let readme = Readme::new(name, &readme_path, &entry, cx.badges, params, cx.config);
 
     readme
         .validate(cx.root, validation, urls)
