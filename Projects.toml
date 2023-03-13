@@ -30,3 +30,33 @@ template = """
 template = """
 [<img alt="build status" src="https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.yml?branch=main&style=for-the-badge" height="{{badge_height}}">]({{github}}/{{crate.repo}}/actions?query=branch%3Amain)
 """
+
+[repos."repos/rune"]
+header = """
+<br>
+
+<div align="center">
+<img alt="Rune Logo" src="https://raw.githubusercontent.com/rune-rs/rune/main/assets/icon.png" />
+</div>
+
+<br>
+
+<div align="center">
+<a href="https://rune-rs.github.io"><b>Visit the site 🌐</b></a>
+&mdash;
+<a href="https://rune-rs.github.io/book/"><b>Read the book 📖</b></a>
+</div>
+
+<br>
+
+{{description}}
+{{#if is_more}}
+
+<br>
+{{/if}}
+"""
+
+[[repos."repos/rune".badges]]
+template = """
+[<img alt="chat on discord" src="https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square" height="20">](https://discord.gg/v5AeNkT)
+"""

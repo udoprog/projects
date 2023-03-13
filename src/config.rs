@@ -276,7 +276,7 @@ where
             let mut config = self.table(config)?;
 
             let header = self.in_string(&mut config, "header", |cx, string| {
-                cx.templating.compile(string.trim())
+                cx.templating.compile(&string)
             })?;
 
             let badges = self.badges(&mut config)?.unwrap_or_default();

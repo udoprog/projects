@@ -631,6 +631,7 @@ enum RunIdentity {
 pub(crate) struct CrateParams<'a> {
     pub(crate) repo: &'a str,
     pub(crate) name: &'a str,
+    pub(crate) description: Option<&'a str>,
 }
 
 pub(crate) struct Readme<'a> {
@@ -742,64 +743,17 @@ impl<'a> Readme<'a> {
             false
         }
 
-        #[derive(Serialize)]
-        struct HeaderParams {}
-
-        let lib_rs = File::read(self.lib_rs.to_path(root))?;
-        let mut new_file = File::new();
-
-        for badge in self.badges.iter(self.name) {
-            let string = badge.build(self.crate_params, self.config)?;
-            new_file.push(format!("//! {string}").as_bytes());
-        }
-
-        let mut header_file = File::new();
-
-        if let Some(header) = self.badges.header(self.name) {
-            let header = header.render(&HeaderParams {})?;
-
-            for string in header.split('\n') {
-                dbg!(string);
-
-                if string.is_empty() {
-                    header_file.push(b"//!");
+        pub const fn trim_ascii_start(mut bytes: &[u8]) -> &[u8] {
+            while let [first, rest @ ..] = bytes {
+                if first.is_ascii_whitespace() {
+                    bytes = rest;
                 } else {
-                    header_file.push(format!("//! {string}").as_bytes());
+                    break;
                 }
             }
+
+            bytes
         }
-
-        let mut header_lines = header_file.lines().peekable();
-        let mut source_lines = lib_rs.lines().peekable();
-
-        while let Some(line) = source_lines.peek() {
-            if line
-                .as_rust_comment()
-                .filter(|comment| is_badge_comment(comment))
-                .is_none()
-            {
-                break;
-            }
-
-            source_lines.next();
-        }
-
-        while let (Some(header), Some(line)) = (header_lines.peek(), source_lines.peek()) {
-            if trim_ascii_end(line.as_bytes()) != trim_ascii_end(header.as_bytes()) {
-                break;
-            }
-
-            source_lines.next();
-            header_lines.next();
-        }
-
-        for line in header_lines.chain(source_lines) {
-            let bytes = line.as_bytes();
-            let bytes = trim_ascii_end(bytes);
-            new_file.push(bytes);
-        }
-
-        return Ok((Arc::new(lib_rs), Arc::new(new_file)));
 
         pub const fn trim_ascii_end(mut bytes: &[u8]) -> &[u8] {
             while let [rest @ .., last] = bytes {
@@ -812,6 +766,68 @@ impl<'a> Readme<'a> {
 
             bytes
         }
+
+        #[derive(Serialize)]
+        struct HeaderParams<'a> {
+            description: Option<&'a str>,
+            is_more: bool,
+        }
+
+        let lib_rs = File::read(self.lib_rs.to_path(root))?;
+        let mut new_file = File::new();
+
+        for badge in self.badges.iter(self.name) {
+            let string = badge.build(self.crate_params, self.config)?;
+            new_file.push(format!("//! {string}").as_bytes());
+        }
+
+        let mut source_lines = lib_rs.lines().peekable();
+
+        if let Some(header) = self.badges.header(self.name) {
+            while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
+                if trim_ascii_start(line).starts_with(b"#") {
+                    break;
+                }
+
+                source_lines.next();
+            }
+
+            let header = header.render(&HeaderParams {
+                description: self.crate_params.description.map(str::trim),
+                is_more: source_lines.peek().is_some(),
+            })?;
+
+            let mut any = false;
+
+            for string in header.split('\n') {
+                if !any {
+                    new_file.push(b"//!");
+                    any = true;
+                }
+
+                if string.is_empty() {
+                    new_file.push(b"//!");
+                } else {
+                    new_file.push(format!("//! {string}").as_bytes());
+                }
+            }
+        } else {
+            while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
+                if !is_badge_comment(line) {
+                    break;
+                }
+
+                source_lines.next();
+            }
+        }
+
+        for line in source_lines {
+            let bytes = line.as_bytes();
+            let bytes = trim_ascii_end(bytes);
+            new_file.push(bytes);
+        }
+
+        Ok((Arc::new(lib_rs), Arc::new(new_file)))
     }
 
     /// Test if the specified file has toplevel headings.

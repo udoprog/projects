@@ -410,6 +410,7 @@ fn run_module(
     let params = cx.config.per_crate_render(CrateParams {
         repo: &repo,
         name: primary_crate.manifest.crate_name()?,
+        description: primary_crate.manifest.description()?,
     });
 
     let documentation = match &cx.config.documentation {
@@ -464,6 +465,7 @@ fn run_module(
                     let crate_params = CrateParams {
                         repo: &repo,
                         name: package.manifest.crate_name()?,
+                        description: package.manifest.description()?,
                     };
 
                     build_readme(
