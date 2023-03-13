@@ -15,19 +15,19 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::actions::{Actions, ActionsCheck};
-use crate::badges::Badges;
 use crate::file::{File, LineColumn};
 use crate::model::{work_cargo_toml, Ci, CrateParams, Readme, Validation};
+use crate::repos::Repos;
 use crate::urls::{UrlError, Urls};
 use crate::workspace::Package;
 
 mod actions;
-mod badges;
 mod cargo;
 mod config;
 mod file;
 mod gitmodules;
 mod model;
+mod repos;
 mod templates;
 mod urls;
 mod workspace;
@@ -61,20 +61,14 @@ async fn entry() -> Result<()> {
 
     let opts = Opts::try_parse()?;
 
-    let mut badges = Badges::default();
+    let mut repos = Repos::default();
 
     for badge in &config.badges {
-        badges.push(badge);
+        repos.push_global_badge(badge);
     }
 
     for (id, repo) in &config.repos {
-        for badge in &repo.badges {
-            badges.push_badge(id, badge);
-        }
-
-        if let Some(header) = &repo.header {
-            badges.insert_header(id, header);
-        }
+        repos.insert_repo(id, repo);
     }
 
     let mut actions = Actions::default();
@@ -94,7 +88,7 @@ async fn entry() -> Result<()> {
     let cx = Ctxt {
         root: &root,
         config: &config,
-        badges: &badges,
+        badges: &repos,
         actions: &actions,
         default_workflow,
     };
@@ -368,7 +362,7 @@ impl Default for Action {
 struct Ctxt<'a> {
     root: &'a Path,
     config: &'a Config,
-    badges: &'a Badges<'a>,
+    badges: &'a Repos<'a>,
     actions: &'a Actions<'a>,
     default_workflow: String,
 }

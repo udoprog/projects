@@ -15,10 +15,10 @@ use toml_edit::Key;
 use url::Url;
 
 use crate::actions::Actions;
-use crate::badges::Badges;
 use crate::cargo::Manifest;
 use crate::config::Config;
 use crate::file::File;
+use crate::repos::Repos;
 use crate::urls::Urls;
 use crate::workspace::Package;
 
@@ -638,7 +638,7 @@ pub(crate) struct Readme<'a> {
     pub(crate) name: &'a str,
     pub(crate) path: &'a RelativePath,
     pub(crate) lib_rs: &'a RelativePath,
-    pub(crate) badges: &'a Badges<'a>,
+    pub(crate) repos: &'a Repos<'a>,
     pub(crate) crate_params: CrateParams<'a>,
     pub(crate) config: &'a Config,
 }
@@ -649,7 +649,7 @@ impl<'a> Readme<'a> {
         name: &'a str,
         path: &'a RelativePath,
         lib_rs: &'a RelativePath,
-        badges: &'a Badges,
+        repos: &'a Repos,
         crate_params: CrateParams<'a>,
         config: &'a Config,
     ) -> Self {
@@ -657,7 +657,7 @@ impl<'a> Readme<'a> {
             name,
             path,
             lib_rs,
-            badges,
+            repos,
             crate_params,
             config,
         }
@@ -728,19 +728,29 @@ impl<'a> Readme<'a> {
     fn process_lib_rs(&self, root: &Path) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
         /// Test if line is a badge comment.
         fn is_badge_comment(c: &[u8]) -> bool {
-            if c.starts_with(b" [<img ") && c.ends_with(b")") {
+            let c = trim_ascii(c);
+
+            if c == b"<div align=\"center\">" || c == b"</div>" {
                 return true;
             }
 
-            if c.starts_with(b" [![") && c.ends_with(b")") {
+            if c.starts_with(b"[<img ") && c.ends_with(b")") {
                 return true;
             }
 
-            if c.starts_with(b" <a href") && c.ends_with(b"</a>") {
+            if c.starts_with(b"[![") && c.ends_with(b")") {
+                return true;
+            }
+
+            if c.starts_with(b"<a href") && c.ends_with(b"</a>") {
                 return true;
             }
 
             false
+        }
+
+        pub const fn trim_ascii(bytes: &[u8]) -> &[u8] {
+            trim_ascii_end(trim_ascii_start(bytes))
         }
 
         pub const fn trim_ascii_start(mut bytes: &[u8]) -> &[u8] {
@@ -776,14 +786,27 @@ impl<'a> Readme<'a> {
         let lib_rs = File::read(self.lib_rs.to_path(root))?;
         let mut new_file = File::new();
 
-        for badge in self.badges.iter(self.name) {
-            let string = badge.build(self.crate_params, self.config)?;
-            new_file.push(format!("//! {string}").as_bytes());
+        let center_badges = self.repos.center_badges(self.name);
+        let mut badges = self.repos.iter(self.name).peekable();
+
+        if badges.peek().is_some() {
+            if center_badges {
+                new_file.push(format!("//! <center>").as_bytes());
+            }
+
+            for badge in badges {
+                let string = badge.build(self.crate_params, self.config)?;
+                new_file.push(format!("//! {string}").as_bytes());
+            }
+
+            if center_badges {
+                new_file.push(format!("//! </center>").as_bytes());
+            }
         }
 
         let mut source_lines = lib_rs.lines().peekable();
 
-        if let Some(header) = self.badges.header(self.name) {
+        if let Some(header) = self.repos.header(self.name) {
             while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
                 if trim_ascii_start(line).starts_with(b"#") {
                     break;

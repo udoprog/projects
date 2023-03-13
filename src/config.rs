@@ -6,8 +6,8 @@ use anyhow::{anyhow, Context, Result};
 use relative_path::RelativePathBuf;
 use serde::Serialize;
 
-use crate::badges::Badge;
 use crate::model::CrateParams;
+use crate::repos::Badge;
 use crate::templates::{Template, Templating};
 
 /// Default job name.
@@ -41,6 +41,8 @@ pub(crate) struct Repo {
     pub(crate) header: Option<Template>,
     /// Custom badges for a specific project.
     pub(crate) badges: Vec<ConfigBadge>,
+    /// Whether to center badges or not.
+    pub(crate) center_badges: bool,
 }
 
 pub(crate) struct Config {
@@ -192,6 +194,13 @@ where
             }
         }
 
+        fn boolean(&mut self, value: toml::Value) -> Result<bool> {
+            match value {
+                toml::Value::Boolean(value) => Ok(value),
+                other => Err(self.bail(format_args!("expected boolean, got {other}"))),
+            }
+        }
+
         fn array(&mut self, value: toml::Value) -> Result<Vec<toml::Value>> {
             match value {
                 toml::Value::Array(array) => Ok(array),
@@ -222,6 +231,17 @@ where
                 }
             };
 
+            self.path.pop();
+            Ok(Some(out))
+        }
+
+        fn in_boolean(&mut self, config: &mut toml::Table, key: &str) -> Result<Option<bool>> {
+            let Some(value) = config.remove(key) else {
+                return Ok(None);
+            };
+
+            self.key(key);
+            let out = self.boolean(value)?;
             self.path.pop();
             Ok(Some(out))
         }
@@ -280,8 +300,15 @@ where
             })?;
 
             let badges = self.badges(&mut config)?.unwrap_or_default();
+            let center_badges = self
+                .in_boolean(&mut config, "center_badges")?
+                .unwrap_or_default();
             self.ensure_empty(config)?;
-            Ok(Repo { header, badges })
+            Ok(Repo {
+                header,
+                badges,
+                center_badges,
+            })
         }
     }
 
