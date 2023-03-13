@@ -22,6 +22,9 @@ use crate::repos::Repos;
 use crate::urls::Urls;
 use crate::workspace::Package;
 
+/// Marker that is put into the generated header to indicate when it ends.
+const HEADER_MARKER: &str = "<!--- header -->";
+
 macro_rules! cargo_issues {
     ($f:ident, $($issue:ident $({ $($field:ident: $ty:ty),* $(,)? })? => $description:expr),* $(,)?) => {
         pub(crate) enum CargoIssue {
@@ -637,7 +640,7 @@ pub(crate) struct CrateParams<'a> {
 pub(crate) struct Readme<'a> {
     pub(crate) name: &'a str,
     pub(crate) path: &'a RelativePath,
-    pub(crate) lib_rs: &'a RelativePath,
+    pub(crate) entry: &'a RelativePath,
     pub(crate) repos: &'a Repos<'a>,
     pub(crate) crate_params: CrateParams<'a>,
     pub(crate) config: &'a Config,
@@ -648,7 +651,7 @@ impl<'a> Readme<'a> {
     pub(crate) fn new(
         name: &'a str,
         path: &'a RelativePath,
-        lib_rs: &'a RelativePath,
+        entry: &'a RelativePath,
         repos: &'a Repos,
         crate_params: CrateParams<'a>,
         config: &'a Config,
@@ -656,7 +659,7 @@ impl<'a> Readme<'a> {
         Self {
             name,
             path,
-            lib_rs,
+            entry,
             repos,
             crate_params,
             config,
@@ -676,13 +679,13 @@ impl<'a> Readme<'a> {
             });
         }
 
-        if self.lib_rs.to_path(root).is_file() {
+        if self.entry.to_path(root).is_file() {
             let (file, new_file) = self.process_lib_rs(root)?;
             let checks = self.markdown_checks(&file, urls)?;
 
             for (file, range) in checks.toplevel_headings {
                 validation.push(Validation::ToplevelHeadings {
-                    path: self.lib_rs.to_owned(),
+                    path: self.entry.to_owned(),
                     file,
                     range,
                     line_offset: checks.line_offset,
@@ -691,7 +694,7 @@ impl<'a> Readme<'a> {
 
             for (file, range) in checks.missing_preceeding_br {
                 validation.push(Validation::MissingPreceedingBr {
-                    path: self.lib_rs.to_owned(),
+                    path: self.entry.to_owned(),
                     file,
                     range,
                     line_offset: checks.line_offset,
@@ -702,7 +705,7 @@ impl<'a> Readme<'a> {
 
             if *file != *new_file {
                 validation.push(Validation::MismatchedLibRs {
-                    path: self.lib_rs.to_owned(),
+                    path: self.entry.to_owned(),
                     new_file: new_file.clone(),
                 });
             }
@@ -778,37 +781,45 @@ impl<'a> Readme<'a> {
         }
 
         #[derive(Serialize)]
+        struct BadgeParams {
+            html: Option<String>,
+            markdown: Option<String>,
+        }
+
+        #[derive(Serialize)]
         struct HeaderParams<'a> {
+            badges: &'a [BadgeParams],
             description: Option<&'a str>,
             is_more: bool,
         }
 
-        let lib_rs = File::read(self.lib_rs.to_path(root))?;
+        let source = File::read(self.entry.to_path(root))?;
         let mut new_file = File::new();
 
-        let center_badges = self.repos.center_badges(self.name);
-        let mut badges = self.repos.iter(self.name).peekable();
+        let mut badges = Vec::new();
 
-        if badges.peek().is_some() {
-            if center_badges {
-                new_file.push(format!("//! <center>").as_bytes());
-            }
-
-            for badge in badges {
-                let string = badge.build(self.crate_params, self.config)?;
-                new_file.push(format!("//! {string}").as_bytes());
-            }
-
-            if center_badges {
-                new_file.push(format!("//! </center>").as_bytes());
-            }
+        for badge in self.repos.iter(self.name) {
+            badges.push(BadgeParams {
+                markdown: badge.markdown(self.crate_params, self.config)?,
+                html: badge.html(self.crate_params, self.config)?,
+            });
         }
 
-        let mut source_lines = lib_rs.lines().peekable();
+        let mut source_lines = source.lines().peekable();
 
         if let Some(header) = self.repos.header(self.name) {
+            let mut found_marker = false;
+
             while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
-                if trim_ascii_start(line).starts_with(b"#") {
+                let line = trim_ascii_start(line);
+
+                if line.starts_with(b"#") {
+                    break;
+                }
+
+                if line == HEADER_MARKER.as_bytes() {
+                    found_marker = true;
+                    source_lines.next();
                     break;
                 }
 
@@ -816,23 +827,28 @@ impl<'a> Readme<'a> {
             }
 
             let header = header.render(&HeaderParams {
+                badges: &badges,
                 description: self.crate_params.description.map(str::trim),
                 is_more: source_lines.peek().is_some(),
             })?;
 
-            let mut any = false;
-
             for string in header.split('\n') {
-                if !any {
-                    new_file.push(b"//!");
-                    any = true;
-                }
-
                 if string.is_empty() {
                     new_file.push(b"//!");
                 } else {
                     new_file.push(format!("//! {string}").as_bytes());
                 }
+            }
+
+            // Add a header marker in case an existing marker was found and
+            // there is nothing more in the header.
+            if found_marker
+                && source_lines
+                    .peek()
+                    .and_then(|line| line.as_rust_comment())
+                    .is_some()
+            {
+                new_file.push(format!("//! {HEADER_MARKER}").as_bytes());
             }
         } else {
             while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
@@ -842,6 +858,12 @@ impl<'a> Readme<'a> {
 
                 source_lines.next();
             }
+
+            for badge in badges {
+                if let Some(markdown) = &badge.markdown {
+                    new_file.push(format!("//! {markdown}").as_bytes());
+                }
+            }
         }
 
         for line in source_lines {
@@ -850,7 +872,7 @@ impl<'a> Readme<'a> {
             new_file.push(bytes);
         }
 
-        Ok((Arc::new(lib_rs), Arc::new(new_file)))
+        Ok((Arc::new(source), Arc::new(new_file)))
     }
 
     /// Test if the specified file has toplevel headings.
@@ -941,7 +963,7 @@ impl<'a> Readme<'a> {
                     url,
                     file.clone(),
                     range.clone(),
-                    self.lib_rs,
+                    self.entry,
                     checks.line_offset,
                 );
 
@@ -956,7 +978,7 @@ impl<'a> Readme<'a> {
             error,
             file.clone(),
             range.clone(),
-            self.lib_rs,
+            self.entry,
             checks.line_offset,
         );
 

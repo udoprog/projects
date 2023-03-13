@@ -41,8 +41,6 @@ pub(crate) struct Repo {
     pub(crate) header: Option<Template>,
     /// Custom badges for a specific project.
     pub(crate) badges: Vec<ConfigBadge>,
-    /// Whether to center badges or not.
-    pub(crate) center_badges: bool,
 }
 
 pub(crate) struct Config {
@@ -90,14 +88,31 @@ impl Config {
 }
 
 pub(crate) struct ConfigBadge {
-    template: Template,
+    markdown: Option<Template>,
+    html: Option<Template>,
 }
 
 impl Badge for ConfigBadge {
     #[inline]
-    fn build(&self, krate: CrateParams<'_>, config: &Config) -> Result<String> {
+    fn markdown(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
         let data = config.per_crate_render(krate);
-        self.template.render(&data)
+
+        let Some(template) = self.markdown.as_ref() else {
+            return Ok(None);
+        };
+
+        Ok(Some(template.render(&data)?))
+    }
+
+    #[inline]
+    fn html(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
+        let data = config.per_crate_render(krate);
+
+        let Some(template) = self.html.as_ref() else {
+            return Ok(None);
+        };
+
+        Ok(Some(template.render(&data)?))
     }
 }
 
@@ -280,13 +295,31 @@ where
             let badges = self.in_array(config, "badges", |cx, value| {
                 let mut value = cx.table(value)?;
 
-                let Some(template) = cx.in_string(&mut value, "template", |cx, string| {
-                    Ok(cx.templating.compile(string.trim())?)
-                })? else {
-                    return Err(cx.bail("missing .template"));
+                let alt = cx.in_string(&mut value, "alt", |_, string| {
+                    Ok(string)
+                })?;
+
+                let src = cx.in_string(&mut value, "src", |_, string| {
+                    Ok(string)
+                })?;
+
+                let href = cx.in_string(&mut value, "href", |_, string| {
+                    Ok(string)
+                })?;
+
+                let height = cx.in_string(&mut value, "height", |_, string| {
+                    Ok(string)
+                })?;
+
+                let (markdown, html) = if let (Some(alt), Some(src), Some(href), Some(height)) = (alt, src, href, height) {
+                    let markdown = cx.templating.compile(&format!("[<img alt=\"{alt}\" src=\"{src}\" height=\"{height}\">]({href})"))?;
+                    let html = cx.templating.compile(&format!("<a href=\"{src}\"><img alt=\"{alt}\" src=\"{src}\" height=\"{height}\"></a>"))?;
+                    (Some(markdown), Some(html))
+                } else {
+                    (None, None)
                 };
 
-                Ok(ConfigBadge { template })
+                Ok(ConfigBadge { markdown, html })
             })?;
 
             Ok(badges)
@@ -300,15 +333,12 @@ where
             })?;
 
             let badges = self.badges(&mut config)?.unwrap_or_default();
-            let center_badges = self
+            let _ = self
                 .in_boolean(&mut config, "center_badges")?
                 .unwrap_or_default();
             self.ensure_empty(config)?;
-            Ok(Repo {
-                header,
-                badges,
-                center_badges,
-            })
+
+            Ok(Repo { header, badges })
         }
     }
 

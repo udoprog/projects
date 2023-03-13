@@ -12,39 +12,49 @@ badge_colors = { github = "8da0cb", crates_io = "fc8d62", docs_rs = "66c2a5" }
 badge_height = 20
 
 [[badges]]
-template = """
-[<img alt="github" src="https://img.shields.io/badge/github-{{dash_escape crate.repo}}-{{badge_colors.github}}?style=for-the-badge&logo=github" height="{{badge_height}}">]({{github}}/{{crate.repo}})
-"""
+alt = "github"
+src = "https://img.shields.io/badge/github-{{dash_escape crate.repo}}-{{badge_colors.github}}?style=for-the-badge&logo=github"
+href = "{{github}}/{{crate.repo}}"
+height = "{{badge_height}}"
 
 [[badges]]
-template = """
-[<img alt="crates.io" src="https://img.shields.io/crates/v/{{crate.name}}.svg?style=for-the-badge&color={{badge_colors.crates_io}}&logo=rust" height="{{badge_height}}">](https://crates.io/crates/{{crate.name}})
-"""
+alt = "crates.io"
+src = "https://img.shields.io/crates/v/{{crate.name}}.svg?style=for-the-badge&color={{badge_colors.crates_io}}&logo=rust"
+href = "https://crates.io/crates/{{crate.name}}"
+height = "{{badge_height}}"
 
 [[badges]]
-template = """
-[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-{{dash_escape crate.name}}-{{badge_colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}" height="{{badge_height}}">]({{docs_rs}}/{{crate.name}})
-"""
+alt = "docs.rs"
+src = "https://img.shields.io/badge/docs.rs-{{dash_escape crate.name}}-{{badge_colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}"
+href = "{{docs_rs}}/{{crate.name}}"
+height = "{{badge_height}}"
 
 [[badges]]
-template = """
-[<img alt="build status" src="https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.yml?branch=main&style=for-the-badge" height="{{badge_height}}">]({{github}}/{{crate.repo}}/actions?query=branch%3Amain)
-"""
+alt = "build status"
+src = "https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.yml?branch=main&style=for-the-badge"
+href = "{{github}}/{{crate.repo}}/actions?query=branch%3Amain"
+height = "{{badge_height}}"
 
 [repos."repos/rune"]
 header = """
-<br>
-
 <div align="center">
-<img alt="Rune Logo" src="https://raw.githubusercontent.com/rune-rs/rune/main/assets/icon.png" />
+{{#each badges}}
+    {{literal this.html}}
+{{/each}}
 </div>
 
 <br>
 
 <div align="center">
-<a href="https://rune-rs.github.io"><b>Visit the site 🌐</b></a>
-&mdash;
-<a href="https://rune-rs.github.io/book/"><b>Read the book 📖</b></a>
+    <a href="https://rune-rs.github.io"><b>Visit the site 🌐</b></a>
+    &mdash;
+    <a href="https://rune-rs.github.io/book/"><b>Read the book 📖</b></a>
+</div>
+
+<br>
+
+<div align="center">
+    <img alt="rune logo" src="https://raw.githubusercontent.com/rune-rs/rune/main/assets/icon.png" />
 </div>
 
 <br>
@@ -57,6 +67,7 @@ header = """
 """
 
 [[repos."repos/rune".badges]]
-template = """
-[<img alt="chat on discord" src="https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square" height="20">](https://discord.gg/v5AeNkT)
-"""
+alt = "chat on discord"
+src = "https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square"
+href = "https://discord.gg/v5AeNkT"
+height = "{{badge_height}}"

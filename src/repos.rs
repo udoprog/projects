@@ -8,7 +8,11 @@ use crate::templates::Template;
 
 /// Badge builder.
 pub(crate) trait Badge {
-    fn build(&self, params: CrateParams<'_>, config: &Config) -> Result<String>;
+    /// Render badge as markdown.
+    fn markdown(&self, params: CrateParams<'_>, config: &Config) -> Result<Option<String>>;
+
+    /// Render badge as html.
+    fn html(&self, params: CrateParams<'_>, config: &Config) -> Result<Option<String>>;
 }
 
 /// Collection of badges to build.
@@ -32,15 +36,6 @@ impl<'a> Repos<'a> {
     /// Get the header for the given repo.
     pub(crate) fn header(&self, repo: &str) -> Option<&Template> {
         self.repos.get(repo)?.header.as_ref()
-    }
-
-    /// Indicate if badges should be centered or not.
-    pub(crate) fn center_badges(&self, repo: &str) -> bool {
-        let Some(repo) = self.repos.get(repo) else {
-            return false;
-        };
-
-        repo.center_badges
     }
 
     /// Push a global badge.
