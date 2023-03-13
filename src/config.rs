@@ -313,7 +313,7 @@ where
 
                 let (markdown, html) = if let (Some(alt), Some(src), Some(href), Some(height)) = (alt, src, href, height) {
                     let markdown = cx.templating.compile(&format!("[<img alt=\"{alt}\" src=\"{src}\" height=\"{height}\">]({href})"))?;
-                    let html = cx.templating.compile(&format!("<a href=\"{src}\"><img alt=\"{alt}\" src=\"{src}\" height=\"{height}\"></a>"))?;
+                    let html = cx.templating.compile(&format!("<a href=\"{href}\"><img alt=\"{alt}\" src=\"{src}\" height=\"{height}\"></a>"))?;
                     (Some(markdown), Some(html))
                 } else {
                     (None, None)
