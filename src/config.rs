@@ -250,6 +250,10 @@ where
             Ok(Some(out))
         }
 
+        fn as_string(&mut self, config: &mut toml::Table, key: &str) -> Result<Option<String>> {
+            self.in_string(config, key, |_, string| Ok(string))
+        }
+
         fn in_boolean(&mut self, config: &mut toml::Table, key: &str) -> Result<Option<bool>> {
             let Some(value) = config.remove(key) else {
                 return Ok(None);
@@ -294,30 +298,25 @@ where
         ) -> Result<Option<Vec<ConfigBadge>>, anyhow::Error> {
             let badges = self.in_array(config, "badges", |cx, value| {
                 let mut value = cx.table(value)?;
+                let alt = cx.as_string(&mut value, "alt")?;
+                let src = cx.as_string(&mut value, "src")?;
+                let href = cx.as_string(&mut value, "href")?;
+                let height = cx.as_string(&mut value, "height")?;
 
-                let alt = cx.in_string(&mut value, "alt", |_, string| {
-                    Ok(string)
-                })?;
+                let alt = FormatOptional(alt.as_ref(), |f, alt| write!(f, " alt=\"{alt}\""));
 
-                let src = cx.in_string(&mut value, "src", |_, string| {
-                    Ok(string)
-                })?;
-
-                let href = cx.in_string(&mut value, "href", |_, string| {
-                    Ok(string)
-                })?;
-
-                let height = cx.in_string(&mut value, "height", |_, string| {
-                    Ok(string)
-                })?;
-
-                let (markdown, html) = if let (Some(alt), Some(src), Some(href), Some(height)) = (alt, src, href, height) {
-                    let markdown = cx.templating.compile(&format!("[<img alt=\"{alt}\" src=\"{src}\" height=\"{height}\">]({href})"))?;
-                    let html = cx.templating.compile(&format!("<a href=\"{href}\"><img alt=\"{alt}\" src=\"{src}\" height=\"{height}\"></a>"))?;
-                    (Some(markdown), Some(html))
-                } else {
-                    (None, None)
-                };
+                let (markdown, html) =
+                    if let (Some(src), Some(href), Some(height)) = (src, href, height) {
+                        let markdown = cx.templating.compile(&format!(
+                            "[<img{alt} src=\"{src}\" height=\"{height}\">]({href})"
+                        ))?;
+                        let html = cx.templating.compile(&format!(
+                            "<a href=\"{href}\"><img{alt} src=\"{src}\" height=\"{height}\"></a>"
+                        ))?;
+                        (Some(markdown), Some(html))
+                    } else {
+                        (None, None)
+                    };
 
                 Ok(ConfigBadge { markdown, html })
             })?;
@@ -405,25 +404,20 @@ where
     })
 }
 
-mod model {
-    use relative_path::RelativePathBuf;
-    use serde::{Deserialize, Serialize};
+struct FormatOptional<T, F>(Option<T>, F)
+where
+    F: Fn(&mut fmt::Formatter<'_>, &T) -> fmt::Result;
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub(super) struct Config {
-        pub(super) default_workflow: RelativePathBuf,
-        pub(super) job_name: String,
-        pub(super) license: String,
-        #[serde(default)]
-        pub(super) authors: Vec<String>,
-        pub(crate) extra: toml::Value,
-        pub(crate) documentation: String,
-        pub(super) badges: Vec<Badge>,
-    }
+impl<T, F> fmt::Display for FormatOptional<T, F>
+where
+    T: fmt::Display,
+    F: Fn(&mut fmt::Formatter<'_>, &T) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(value) = &self.0 {
+            (self.1)(f, value)?;
+        }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub(super) struct Badge {
-        /// The template of the badge.
-        pub(super) template: String,
+        Ok(())
     }
 }
