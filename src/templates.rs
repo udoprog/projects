@@ -37,6 +37,7 @@ impl Templating {
     pub(crate) fn new() -> Result<Templating> {
         let mut handlebars = Handlebars::new();
         handlebars.register_helper("dash_escape", Box::new(dash_escape));
+        handlebars.register_helper("literal", Box::new(literal));
 
         Ok(Templating {
             handlebars: Arc::new(handlebars),
@@ -63,5 +64,17 @@ fn dash_escape(
 ) -> HelperResult {
     let param = h.param(0).and_then(|v| v.value().as_str()).unwrap_or("");
     out.write(param.replace('-', "--").as_ref())?;
+    Ok(())
+}
+
+fn literal(
+    h: &Helper<'_, '_>,
+    _: &Handlebars<'_>,
+    _: &Context,
+    _: &mut RenderContext<'_, '_>,
+    out: &mut dyn Output,
+) -> HelperResult {
+    let param = h.param(0).and_then(|v| v.value().as_str()).unwrap_or("");
+    out.write(param)?;
     Ok(())
 }

@@ -51,20 +51,30 @@ async fn entry() -> Result<()> {
     let auth = std::fs::read_to_string(root.join(".auth")).with_context(|| anyhow!(".auth"))?;
     let auth = auth.trim();
 
-    let template = templates::Templating::new()?;
+    let templating = templates::Templating::new()?;
 
     let config = {
         let config_path = root.join(PROJECTS_TOML);
-        config::load(&config_path, &template)
+        config::load(&config_path, &templating)
             .with_context(|| config_path.to_string_lossy().into_owned())?
     };
 
     let opts = Opts::try_parse()?;
 
-    let mut badges = Badges::new();
+    let mut badges = Badges::default();
 
     for badge in &config.badges {
         badges.push(badge);
+    }
+
+    for (id, repo) in &config.repos {
+        for badge in &repo.badges {
+            badges.push_badge(id, badge);
+        }
+
+        if let Some(header) = &repo.header {
+            badges.insert_header(id, header);
+        }
     }
 
     let mut actions = Actions::default();
@@ -76,7 +86,10 @@ async fn entry() -> Result<()> {
         "using `run` is less verbose and faster",
     );
 
-    let default_workflow = config.default_workflow.render(&config.global_render())?;
+    let default_workflow = match &config.default_workflow {
+        Some(workflow) => workflow.render(&config.global_render())?,
+        None => String::default(),
+    };
 
     let cx = Ctxt {
         root: &root,
@@ -399,15 +412,19 @@ fn run_module(
         name: primary_crate.manifest.crate_name()?,
     });
 
-    let documentation = cx.config.documentation.render(&params)?;
+    let documentation = match &cx.config.documentation {
+        Some(documentation) => Some(documentation.render(&params)?),
+        None => None,
+    };
+
     let url_string = module_url.to_string();
 
     let update_params = UpdateParams {
-        license: &cx.config.license,
+        license: cx.config.license(),
         readme: README_MD,
         repository: &url_string,
         homepage: &url_string,
-        documentation: &documentation,
+        documentation: documentation.as_deref().unwrap_or_default(),
         authors: &cx.config.authors,
     };
 
@@ -421,18 +438,19 @@ fn run_module(
         let path = module_path.join(".github").join("workflows");
         let ci = Ci::new(
             &path,
-            &cx.config.job_name,
+            cx.config.job_name(),
             cx.actions,
             &primary_crate.manifest,
             !workspace.is_single_crate(),
         );
         ci.validate(cx.root, validation)
-            .with_context(|| anyhow!("ci validation: {}", cx.config.job_name))?;
+            .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
     }
 
     if module.is_enabled("readme") {
         build_readme(
             &cx,
+            module.name,
             module_path,
             primary_crate,
             params.crate_params,
@@ -450,6 +468,7 @@ fn run_module(
 
                     build_readme(
                         cx,
+                        module.name,
                         &package.manifest_dir,
                         package,
                         crate_params,
@@ -694,6 +713,7 @@ fn temporary_line_fix(file: &File, pos: usize, line_offset: usize) -> Result<(us
 /// Perform readme validation.
 fn build_readme(
     cx: &Ctxt<'_>,
+    name: &str,
     readme_path: &RelativePath,
     package: &Package,
     params: CrateParams<'_>,
@@ -703,7 +723,7 @@ fn build_readme(
     let readme_path = readme_path.join(README_MD);
     let lib_rs = package.lib_rs();
 
-    let readme = Readme::new(&readme_path, &lib_rs, cx.badges, params, cx.config);
+    let readme = Readme::new(name, &readme_path, &lib_rs, cx.badges, params, cx.config);
 
     readme
         .validate(cx.root, validation, urls)

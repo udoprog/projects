@@ -634,6 +634,7 @@ pub(crate) struct CrateParams<'a> {
 }
 
 pub(crate) struct Readme<'a> {
+    pub(crate) name: &'a str,
     pub(crate) path: &'a RelativePath,
     pub(crate) lib_rs: &'a RelativePath,
     pub(crate) badges: &'a Badges<'a>,
@@ -644,6 +645,7 @@ pub(crate) struct Readme<'a> {
 impl<'a> Readme<'a> {
     /// Construct a new README config.
     pub(crate) fn new(
+        name: &'a str,
         path: &'a RelativePath,
         lib_rs: &'a RelativePath,
         badges: &'a Badges,
@@ -651,6 +653,7 @@ impl<'a> Readme<'a> {
         config: &'a Config,
     ) -> Self {
         Self {
+            name,
             path,
             lib_rs,
             badges,
@@ -722,23 +725,75 @@ impl<'a> Readme<'a> {
 
     /// Process the lib rs.
     fn process_lib_rs(&self, root: &Path) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
+        /// Test if line is a badge comment.
+        fn is_badge_comment(c: &[u8]) -> bool {
+            if c.starts_with(b" [<img ") && c.ends_with(b")") {
+                return true;
+            }
+
+            if c.starts_with(b" [![") && c.ends_with(b")") {
+                return true;
+            }
+
+            if c.starts_with(b" <a href") && c.ends_with(b"</a>") {
+                return true;
+            }
+
+            false
+        }
+
+        #[derive(Serialize)]
+        struct HeaderParams {}
+
         let lib_rs = File::read(self.lib_rs.to_path(root))?;
         let mut new_file = File::new();
 
-        for badge in self.badges.iter() {
+        for badge in self.badges.iter(self.name) {
             let string = badge.build(self.crate_params, self.config)?;
             new_file.push(format!("//! {string}").as_bytes());
         }
 
-        for line in lib_rs.lines() {
+        let mut header_file = File::new();
+
+        if let Some(header) = self.badges.header(self.name) {
+            let header = header.render(&HeaderParams {})?;
+
+            for string in header.split('\n') {
+                dbg!(string);
+
+                if string.is_empty() {
+                    header_file.push(b"//!");
+                } else {
+                    header_file.push(format!("//! {string}").as_bytes());
+                }
+            }
+        }
+
+        let mut header_lines = header_file.lines().peekable();
+        let mut source_lines = lib_rs.lines().peekable();
+
+        while let Some(line) = source_lines.peek() {
             if line
                 .as_rust_comment()
                 .filter(|comment| is_badge_comment(comment))
-                .is_some()
+                .is_none()
             {
-                continue;
+                break;
             }
 
+            source_lines.next();
+        }
+
+        while let (Some(header), Some(line)) = (header_lines.peek(), source_lines.peek()) {
+            if trim_ascii_end(line.as_bytes()) != trim_ascii_end(header.as_bytes()) {
+                break;
+            }
+
+            source_lines.next();
+            header_lines.next();
+        }
+
+        for line in header_lines.chain(source_lines) {
             let bytes = line.as_bytes();
             let bytes = trim_ascii_end(bytes);
             new_file.push(bytes);
@@ -868,19 +923,6 @@ impl<'a> Readme<'a> {
 
         Ok(())
     }
-}
-
-/// Test if line is a badge comment.
-fn is_badge_comment(c: &[u8]) -> bool {
-    if c.starts_with(b" [<img ") && c.ends_with(b")") {
-        return true;
-    }
-
-    if c.starts_with(b" [![") && c.ends_with(b")") {
-        return true;
-    }
-
-    false
 }
 
 #[derive(Default)]
