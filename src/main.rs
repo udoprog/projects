@@ -8,6 +8,7 @@ mod model;
 mod repos;
 mod templates;
 mod urls;
+mod validation;
 mod workspace;
 
 use std::io::Write;
@@ -90,8 +91,11 @@ async fn entry() -> Result<()> {
     };
 
     match opts.action.unwrap_or_default() {
-        Action::Run(opts) => {
-            crate::actions::run::entry(&cx, &opts).await?;
+        Action::Check(opts) => {
+            crate::actions::check::entry(&cx, &opts, false).await?;
+        }
+        Action::Fix(opts) => {
+            crate::actions::check::entry(&cx, &opts, true).await?;
         }
         Action::For(cmd) => {
             let command_repr = cmd.command.join(" ");
@@ -271,7 +275,9 @@ struct Status {
 #[derive(Subcommand)]
 enum Action {
     /// Run checks for each repo.
-    Run(crate::actions::run::Opts),
+    Check(crate::actions::check::Opts),
+    /// Fix repo.
+    Fix(crate::actions::check::Opts),
     /// Run a command for each repo.
     For(For),
     /// Get the build status for each repo.
@@ -288,7 +294,7 @@ struct Opts {
 
 impl Default for Action {
     fn default() -> Self {
-        Self::Run(crate::actions::run::Opts::default())
+        Self::Check(crate::actions::check::Opts::default())
     }
 }
 

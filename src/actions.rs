@@ -1,4 +1,4 @@
-pub(crate) mod run;
+pub(crate) mod check;
 
 use std::collections::HashMap;
 
