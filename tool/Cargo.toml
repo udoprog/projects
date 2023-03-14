@@ -21,4 +21,4 @@ toml_edit = "0.19.5"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 unicycle = "0.9.3"
-url = "2.3.1"
+url = { version = "2.3.1", features = ["serde"] }
