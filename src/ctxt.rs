@@ -10,4 +10,5 @@ pub(crate) struct Ctxt<'a> {
     pub(crate) actions: &'a Actions<'a>,
     pub(crate) modules: Vec<Module<'a>>,
     pub(crate) default_workflow: String,
+    pub(crate) github_auth: Option<String>,
 }
