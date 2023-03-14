@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use crate::cargo::{self, Manifest};
+use crate::manifest::{self, Manifest};
 use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 
@@ -14,7 +14,7 @@ where
     P: AsRef<Path>,
 {
     let root = root.as_ref();
-    let manifest = cargo::open(manifest_path.to_path(root))?;
+    let manifest = manifest::open(manifest_path.to_path(root))?;
 
     let manifest_dir = manifest_path
         .parent()
@@ -37,7 +37,7 @@ where
             for manifest_dir in members {
                 let manifest_path = manifest_dir.join(CARGO_TOML);
 
-                let manifest = cargo::open(manifest_path.to_path(root))
+                let manifest = manifest::open(manifest_path.to_path(root))
                     .with_context(|| anyhow!("{manifest_path}"))?;
 
                 queue.push_back(Package {

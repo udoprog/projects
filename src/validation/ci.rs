@@ -7,7 +7,7 @@ use relative_path::{RelativePath, RelativePathBuf};
 use serde_yaml::Value;
 
 use crate::actions::Actions;
-use crate::cargo::Manifest;
+use crate::manifest::Manifest;
 use crate::validation::Validation;
 use crate::workspace::{Package, Workspace};
 

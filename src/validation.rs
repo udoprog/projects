@@ -10,9 +10,9 @@ use relative_path::RelativePathBuf;
 
 use self::cargo::CargoIssue;
 use self::ci::ActionExpected;
-use crate::cargo::Manifest;
 use crate::ctxt::Ctxt;
 use crate::file::File;
+use crate::manifest::Manifest;
 use crate::model::{CrateParams, Module, UpdateParams};
 use crate::urls::Urls;
 use crate::workspace::{self};

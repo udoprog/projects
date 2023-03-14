@@ -12,7 +12,6 @@ use serde::Serialize;
 use crate::config::Config;
 use crate::file::File;
 use crate::model::CrateParams;
-use crate::repos::Repos;
 use crate::urls::Urls;
 use crate::validation::Validation;
 use crate::workspace::Package;
@@ -28,7 +27,6 @@ struct Ctxt<'a, 'outer, 'b> {
     name: &'a str,
     path: &'a RelativePath,
     entry: &'a RelativePath,
-    repos: &'a Repos<'a>,
     params: CrateParams<'a>,
     config: &'a Config,
     validation: &'outer mut Vec<Validation<'b>>,
@@ -62,7 +60,6 @@ pub(crate) fn build(
         name,
         path: &readme_path,
         entry: &entry,
-        repos: cx.badges,
         params,
         config: cx.config,
         validation: &mut *validation,
@@ -207,7 +204,7 @@ fn process_lib_rs(cx: &Ctxt<'_, '_, '_>) -> Result<(Arc<File>, Arc<File>), anyho
 
     let mut badges = Vec::new();
 
-    for badge in cx.repos.iter(cx.name) {
+    for badge in cx.config.badges(cx.name) {
         badges.push(BadgeParams {
             markdown: badge.markdown(cx.params, cx.config)?,
             html: badge.html(cx.params, cx.config)?,
@@ -216,7 +213,7 @@ fn process_lib_rs(cx: &Ctxt<'_, '_, '_>) -> Result<(Arc<File>, Arc<File>), anyho
 
     let mut source_lines = source.lines().peekable();
 
-    if let Some(header) = cx.repos.header(cx.name) {
+    if let Some(header) = cx.config.header(cx.name) {
         let mut found_marker = false;
 
         while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {

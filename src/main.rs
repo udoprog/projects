@@ -1,11 +1,10 @@
 mod actions;
-mod cargo;
 mod config;
 mod ctxt;
 mod file;
 mod gitmodules;
+mod manifest;
 mod model;
-mod repos;
 mod templates;
 mod urls;
 mod validation;
@@ -24,7 +23,6 @@ use serde::de::IntoDeserializer;
 use serde::Deserialize;
 
 use crate::actions::{Actions, ActionsCheck};
-use crate::repos::Repos;
 
 const PROJECTS_TOML: &str = "Projects.toml";
 
@@ -54,16 +52,6 @@ async fn entry() -> Result<()> {
 
     let opts = Opts::try_parse()?;
 
-    let mut repos = Repos::default();
-
-    for badge in &config.badges {
-        repos.push_global_badge(badge);
-    }
-
-    for (id, repo) in &config.repos {
-        repos.insert_repo(id, repo);
-    }
-
     let mut actions = Actions::default();
     actions.latest("actions/checkout", "v3");
     actions.check("actions-rs/toolchain", &ActionsRsToolchainActionsCheck);
@@ -84,9 +72,8 @@ async fn entry() -> Result<()> {
     let cx = ctxt::Ctxt {
         root: &root,
         config: &config,
-        badges: &repos,
         actions: &actions,
-        modules: modules,
+        modules,
         default_workflow,
     };
 

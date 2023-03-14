@@ -7,7 +7,6 @@ use relative_path::{RelativePath, RelativePathBuf};
 use serde::Serialize;
 
 use crate::model::CrateParams;
-use crate::repos::Badge;
 use crate::templates::{Template, Templating};
 
 /// Default job name.
@@ -92,6 +91,21 @@ impl Config {
         self.license.as_deref().unwrap_or(DEFAULT_LICENSE)
     }
 
+    /// Iterator over badges for the given repo.
+    pub(crate) fn badges(&self, repo: &str) -> impl Iterator<Item = &'_ ConfigBadge> {
+        let repos = self
+            .repos
+            .get(repo)
+            .into_iter()
+            .flat_map(|repo| repo.badges.iter());
+        self.badges.iter().chain(repos)
+    }
+
+    /// Get the header for the given repo.
+    pub(crate) fn header(&self, repo: &str) -> Option<&Template> {
+        self.repos.get(repo)?.header.as_ref()
+    }
+
     /// Get crate for the given repo.
     pub(crate) fn crate_for<'a>(&'a self, name: &str) -> Option<&'a str> {
         self.repos.get(name)?.krate.as_deref()
@@ -117,9 +131,12 @@ pub(crate) struct ConfigBadge {
     html: Option<Template>,
 }
 
-impl Badge for ConfigBadge {
-    #[inline]
-    fn markdown(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
+impl ConfigBadge {
+    pub(crate) fn markdown(
+        &self,
+        krate: CrateParams<'_>,
+        config: &Config,
+    ) -> Result<Option<String>> {
         let data = config.per_crate_render(krate);
 
         let Some(template) = self.markdown.as_ref() else {
@@ -129,8 +146,7 @@ impl Badge for ConfigBadge {
         Ok(Some(template.render(&data)?))
     }
 
-    #[inline]
-    fn html(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
+    pub(crate) fn html(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
         let data = config.per_crate_render(krate);
 
         let Some(template) = self.html.as_ref() else {
