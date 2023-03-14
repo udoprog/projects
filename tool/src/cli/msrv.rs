@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -96,19 +97,26 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         None => rustc_minor.into_iter().chain([LATEST]).min(),
     };
 
-    let start = opts
-        .oldest
+    let start = opts.oldest.unwrap_or(OLDEST);
+
+    let end = [opts.latest, end]
         .into_iter()
-        .chain([OLDEST])
-        .min()
-        .unwrap_or(OLDEST);
-    let end = end.unwrap_or(LATEST);
+        .flatten()
+        .max()
+        .unwrap_or(LATEST)
+        .max(start);
 
     tracing::info!("Testing Rust 1.{start}-1.{end}");
     let mut candidates = Candidates::new(start, end);
 
-    while let Some(next) = candidates.current() {
-        let version = format!("1.{next}");
+    let mut versions = HashMap::new();
+
+    while let Some(current) = candidates.current() {
+        if versions.contains_key(&current) {
+            break;
+        }
+
+        let version = format!("1.{current}");
 
         let output = Command::new("rustup")
             .args(["run", &version, "rustc", "--version"])
@@ -130,7 +138,7 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         let mut restore = Vec::new();
         let mut packages = workspace.packages().cloned().collect::<Vec<_>>();
 
-        if next < RUST_VERSION_SUPPORTED {
+        if current < RUST_VERSION_SUPPORTED {
             for p in &mut packages {
                 let original = p.manifest_path.with_extension("toml.original");
                 let original_path = original.to_path(cx.root);
@@ -167,9 +175,11 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         if status.success() {
             tracing::info!("Rust {version}: check ok");
             candidates.ok();
+            versions.insert(current, true);
         } else {
             tracing::info!("Rust {version}: check failed");
             candidates.fail();
+            versions.insert(current, false);
         }
 
         for (from, to) in restore {
@@ -177,7 +187,10 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         }
     }
 
-    if let Some(minor) = candidates.current {
+    if let Some(minor) = candidates
+        .current()
+        .filter(|c| versions.get(c).copied().unwrap_or_default())
+    {
         let version = format!("1.{minor}");
         tracing::info!("Supported msrv: Rust {version}");
 
@@ -238,13 +251,7 @@ impl Candidates {
     }
 
     fn current(&self) -> Option<u64> {
-        let current = self.current?;
-
-        if self.end == current && self.start == current {
-            return None;
-        }
-
-        Some(current)
+        self.current
     }
 
     fn ok(&mut self) {
