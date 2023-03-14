@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -14,6 +15,8 @@ const RUST_VERSION_SUPPORTED: u64 = 56;
 const OLDEST: u64 = RUST_VERSION_SUPPORTED;
 /// Latest version to test by default.
 const LATEST: u64 = 68;
+/// Default command to build.
+const DEFAULT_COMMAND: [&str; 3] = ["cargo", "build", "--all-targets"];
 
 #[derive(Default, Parser)]
 pub(crate) struct Opts {
@@ -23,10 +26,15 @@ pub(crate) struct Opts {
     /// Verbose output.
     #[arg(long)]
     verbose: bool,
+    /// Keep the existing Cargo.lock file. By default this is moved out of the
+    /// way, to test that version selection selects a version of all
+    /// dependencies which can compile.
+    #[arg(long)]
+    keep_cargo_lock: bool,
     /// Save new MSRV.
     #[arg(long)]
     save: bool,
-    /// Oldest minor version to test. Default: 1.56.
+    /// Oldest minor version to test. Default: 56.
     #[arg(long)]
     oldest: Option<u64>,
     /// Latest minor version to test. Default detected version from `rustc
@@ -36,7 +44,7 @@ pub(crate) struct Opts {
     /// Command to test with.
     ///
     /// This is run through `rustup run <version> <command>`, the default
-    /// command is `cargo check`.
+    /// command is `cargo build --all-targets`.
     command: Vec<String>,
 }
 
@@ -106,6 +114,9 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         .unwrap_or(LATEST)
         .max(start);
 
+    let cargo_lock = primary.manifest_dir.join("Cargo.lock").to_path(cx.root);
+    let cargo_lock_original = cargo_lock.with_extension("lock.original");
+
     tracing::info!("Testing Rust 1.{start}-1.{end}");
     let mut candidates = Candidates::new(start, end);
 
@@ -158,15 +169,25 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
             }
         }
 
+        if !opts.keep_cargo_lock && cargo_lock.is_file() {
+            move_paths(&cargo_lock, &cargo_lock_original)?;
+            restore.push((cargo_lock_original.clone(), cargo_lock.clone()));
+        }
+
         tracing::trace!("Testing against rust {version}");
 
         let mut command = Command::new("rustup");
         command.args(["run", &version]);
 
         if !opts.command.is_empty() {
+            tracing::info!("Testing Rust {version}: {}", CommandRepr(&opts.command[..]));
             command.args(&opts.command[..]);
         } else {
-            command.args(["cargo", "check"]);
+            tracing::info!(
+                "Testing Rust {version}: {}",
+                CommandRepr(&DEFAULT_COMMAND[..])
+            );
+            command.args(DEFAULT_COMMAND);
         }
 
         command.current_dir(&current_dir);
@@ -276,4 +297,26 @@ impl Candidates {
 
 fn midpoint(start: u64, end: u64) -> u64 {
     (start + (end - start) / 2).clamp(start, end)
+}
+
+struct CommandRepr<'a, S>(&'a [S]);
+
+impl<S> fmt::Display for CommandRepr<'_, S>
+where
+    S: AsRef<str>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut it = self.0.iter();
+        let last = it.next_back();
+
+        for part in it {
+            write!(f, "{} ", part.as_ref())?;
+        }
+
+        if let Some(part) = last {
+            write!(f, "{}", part.as_ref())?;
+        }
+
+        Ok(())
+    }
 }
