@@ -68,11 +68,10 @@ pub(crate) fn build(
     cx: &crate::ctxt::Ctxt<'_>,
     primary_crate: &Package,
     module: &Module<'_>,
-    module_path: &RelativePath,
     workspace: &Workspace,
     validation: &mut Vec<Validation>,
 ) -> Result<()> {
-    let path = module_path.join(".github").join("workflows");
+    let path = workspace.path().join(".github").join("workflows");
 
     let mut ci = Ci {
         root: cx.root,

@@ -36,8 +36,8 @@ struct Ctxt<'a, 'outer> {
 /// Perform readme validation.
 pub(crate) fn build(
     cx: &crate::ctxt::Ctxt<'_>,
-    name: &str,
     path: &RelativePath,
+    name: &str,
     package: &Package,
     params: CrateParams<'_>,
     validation: &mut Vec<Validation>,

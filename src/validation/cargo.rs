@@ -108,14 +108,14 @@ pub(crate) fn work_cargo_toml(
 
     macro_rules! check {
         ($get:ident, $insert:ident, $missing:ident, $wrong:ident) => {
-            match package.manifest.$get()? {
-                None => {
-                    modified_manifest.$insert(update.$get)?;
+            match (package.manifest.$get()?, &update.$get) {
+                (None, Some(update)) => {
+                    modified_manifest.$insert(update.clone())?;
                     issues.push(CargoIssue::$missing);
                     changed = true;
                 }
-                Some(value) if value != update.$get => {
-                    modified_manifest.$insert(update.$get)?;
+                (Some(value), Some(update)) if value != *update => {
+                    modified_manifest.$insert(update.clone())?;
                     issues.push(CargoIssue::$wrong);
                     changed = true;
                 }

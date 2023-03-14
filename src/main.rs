@@ -32,6 +32,8 @@ enum Action {
     For(cli::foreach::Opts),
     /// Get the build status for each repo.
     Status(cli::status::Opts),
+    /// Find the minimum supported rust version through bisection.
+    Msrv(cli::msrv::Opts),
 }
 
 #[derive(Default, Parser)]
@@ -115,6 +117,9 @@ async fn entry() -> Result<()> {
         }
         Action::Status(opts) => {
             cli::status::entry(&cx, &opts).await?;
+        }
+        Action::Msrv(opts) => {
+            cli::msrv::entry(&cx, &opts)?;
         }
     }
 

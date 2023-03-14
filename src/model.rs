@@ -36,11 +36,11 @@ pub(crate) struct OwnedCrateParams {
 
 /// Update parameters.
 pub(crate) struct UpdateParams<'a> {
-    pub(crate) license: &'a str,
-    pub(crate) readme: &'a str,
-    pub(crate) repository: &'a str,
-    pub(crate) homepage: &'a str,
-    pub(crate) documentation: &'a str,
+    pub(crate) license: Option<&'a str>,
+    pub(crate) readme: Option<&'a str>,
+    pub(crate) repository: Option<&'a str>,
+    pub(crate) homepage: Option<&'a str>,
+    pub(crate) documentation: Option<&'a str>,
     pub(crate) authors: &'a [String],
 }
 

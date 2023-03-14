@@ -115,26 +115,16 @@ pub(crate) fn build(
     validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
-    let (Some(module_path), Some(module_url), Some(repo)) = (module.path, &module.url, module.repo()) else {
-        println!(
-            ".gitmodules: {name}: missing `path` and/or `url`",
-            name = module.name
-        );
-        return Ok(());
-    };
+    let workspace = workspace::open(cx, module)?;
 
-    let cargo_toml = match cx.config.cargo_toml(module.name) {
-        Some(cargo_toml) => module_path.join(cargo_toml),
-        None => module_path.join(workspace::CARGO_TOML),
-    };
-
-    let workspace = workspace::open(cx.root, &cargo_toml)?;
-
-    let primary_crate = cx.config.crate_for(module.name).or(repo.split('/').last());
-
-    let primary_crate = match workspace.primary_crate(primary_crate)? {
+    let primary_crate = match workspace.primary_crate()? {
         Some(primary_crate) => primary_crate,
-        None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
+        None => {
+            return Err(anyhow!(
+                "{}: cannot determine primary crate",
+                workspace.path()
+            ))
+        }
     };
 
     let params = cx
@@ -146,14 +136,14 @@ pub(crate) fn build(
         None => None,
     };
 
-    let url_string = module_url.to_string();
+    let module_url = module.url.as_ref().map(|url| url.to_string());
 
     let update_params = UpdateParams {
-        license: cx.config.license(),
-        readme: readme::README_MD,
-        repository: &url_string,
-        homepage: &url_string,
-        documentation: documentation.as_deref().unwrap_or_default(),
+        license: Some(cx.config.license()),
+        readme: Some(readme::README_MD),
+        repository: module_url.as_deref(),
+        homepage: module_url.as_deref(),
+        documentation: documentation.as_deref(),
         authors: &cx.config.authors,
     };
 
@@ -164,22 +154,15 @@ pub(crate) fn build(
     }
 
     if cx.config.is_enabled(module.name, "ci") {
-        ci::build(
-            &cx,
-            &primary_crate,
-            module,
-            module_path,
-            &workspace,
-            validation,
-        )
-        .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
+        ci::build(&cx, &primary_crate, module, &workspace, validation)
+            .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
     }
 
     if cx.config.is_enabled(module.name, "readme") {
         readme::build(
             cx,
+            workspace.path(),
             module.name,
-            module_path,
             primary_crate,
             params.crate_params,
             validation,
@@ -187,14 +170,14 @@ pub(crate) fn build(
         )?;
 
         for package in workspace.packages() {
-            if package.manifest_dir != module_path {
+            if package.manifest_dir != workspace.path() {
                 if package.manifest.is_publish()? {
                     let crate_params = package.crate_params(&module)?;
 
                     readme::build(
                         cx,
-                        module.name,
                         &package.manifest_dir,
+                        module.name,
                         package,
                         crate_params,
                         validation,
