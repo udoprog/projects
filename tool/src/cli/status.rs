@@ -10,8 +10,8 @@ use crate::{ctxt::Ctxt, git};
 
 #[derive(Default, Parser)]
 pub(crate) struct Opts {
-    /// Filter modules.
-    #[arg(long, short)]
+    /// Filter by the specified modules.
+    #[arg(long = "module", short = 'm', name = "module")]
     modules: Vec<String>,
     /// Output raw JSON response.
     #[arg(long)]

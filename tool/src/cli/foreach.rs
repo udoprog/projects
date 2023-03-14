@@ -10,8 +10,8 @@ pub(crate) struct Opts {
     /// Only run for git repos which have cached changes.
     #[arg(long)]
     cached: bool,
-    /// Filter modules.
-    #[arg(long, short)]
+    /// Filter by the specified modules.
+    #[arg(long = "module", short = 'm', name = "module")]
     modules: Vec<String>,
     /// Command to run.
     command: Vec<String>,

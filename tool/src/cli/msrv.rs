@@ -17,8 +17,8 @@ const LATEST: u64 = 68;
 
 #[derive(Default, Parser)]
 pub(crate) struct Opts {
-    /// Filter modules.
-    #[arg(long, short)]
+    /// Filter by the specified modules.
+    #[arg(long = "module", short = 'm', name = "module")]
     modules: Vec<String>,
     /// Verbose output.
     #[arg(long)]
