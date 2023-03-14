@@ -85,3 +85,6 @@
 [submodule "repos/rune"]
 	path = repos/rune
 	url = https://github.com/rune-rs/rune
+[submodule "repos/sqlite-ll"]
+	path = repos/sqlite-ll
+	url = https://github.com/udoprog/sqlite-ll

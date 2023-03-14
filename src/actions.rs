@@ -1,3 +1,5 @@
+pub(crate) mod run;
+
 use std::collections::HashMap;
 
 /// A single actions check.
