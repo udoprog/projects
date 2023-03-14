@@ -138,18 +138,23 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         let mut restore = Vec::new();
         let mut packages = workspace.packages().cloned().collect::<Vec<_>>();
 
-        if current < RUST_VERSION_SUPPORTED {
-            for p in &mut packages {
-                let original = p.manifest_path.with_extension("toml.original");
-                let original_path = original.to_path(cx.root);
-                let manifest_path = p.manifest_path.to_path(cx.root);
+        for p in &mut packages {
+            let original = p.manifest_path.with_extension("toml.original");
+            let original_path = original.to_path(cx.root);
+            let manifest_path = p.manifest_path.to_path(cx.root);
 
-                if p.manifest.remove_rust_version() {
-                    move_paths(&manifest_path, &original_path)?;
-                    tracing::info!("Saving {}", p.manifest_path);
-                    p.manifest.save_to(&manifest_path)?;
-                    restore.push((original_path, manifest_path));
-                }
+            let save = if current < RUST_VERSION_SUPPORTED {
+                p.manifest.set_rust_version(&version)?;
+                true
+            } else {
+                p.manifest.remove_rust_version()
+            };
+
+            if save {
+                move_paths(&manifest_path, &original_path)?;
+                tracing::info!("Saving {}", p.manifest_path);
+                p.manifest.save_to(&manifest_path)?;
+                restore.push((original_path, manifest_path));
             }
         }
 
