@@ -1,4 +1,4 @@
-mod cargo;
+pub(crate) mod cargo;
 mod ci;
 mod readme;
 

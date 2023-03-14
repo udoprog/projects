@@ -15,6 +15,17 @@ pub(crate) struct Opts {
     /// Filter modules.
     #[arg(long, short)]
     modules: Vec<String>,
+    /// Verbose output.
+    #[arg(long)]
+    verbose: bool,
+    /// Save new MSRV.
+    #[arg(long)]
+    save: bool,
+    /// Command to test with.
+    ///
+    /// This is run through `rustup run <version> <command>`, the default
+    /// command is `cargo check`.
+    command: Vec<String>,
 }
 
 pub(crate) fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
@@ -24,13 +35,15 @@ pub(crate) fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
         }
 
         let mut workspace = workspace::open(cx, module)?;
-        build(cx, &mut workspace).with_context(|| workspace.path().to_owned())?;
+        let span = tracing::info_span!("build", path = ?workspace.path());
+        let _enter = span.enter();
+        build(cx, &mut workspace, opts).with_context(|| workspace.path().to_owned())?;
     }
 
     Ok(())
 }
 
-fn build(cx: &Ctxt, workspace: &mut Workspace) -> Result<()> {
+fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
     let primary = workspace
         .primary_crate()?
         .context("missing primary crate")?;
@@ -59,13 +72,9 @@ fn build(cx: &Ctxt, workspace: &mut Workspace) -> Result<()> {
         let original_path = original.to_path(cx.root);
         let manifest_path = p.manifest_path.to_path(cx.root);
 
-        if original_path.is_file() {
-            move_paths(&original_path, &manifest_path)?;
-        }
-
         if p.manifest.remove_rust_version() {
             move_paths(&manifest_path, &original_path)?;
-            tracing::info!("saving {}", manifest_path.display());
+            tracing::info!("saving {}", p.manifest_path);
             p.manifest.save_to(&manifest_path)?;
             restore.push((original_path, manifest_path));
         }
@@ -95,19 +104,54 @@ fn build(cx: &Ctxt, workspace: &mut Workspace) -> Result<()> {
             }
         }
 
-        tracing::info!("testing against rust {version}");
+        tracing::trace!("testing against rust {version}");
 
-        let status = Command::new("rustup")
-            .args(["run", &version, "cargo", "check"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .current_dir(&current_dir)
-            .status()?;
+        let mut command = Command::new("rustup");
+        command.args(["run", &version]);
+
+        if !opts.command.is_empty() {
+            command.args(&opts.command[..]);
+        } else {
+            command.args(["cargo", "check"]);
+        }
+
+        command.current_dir(&current_dir);
+
+        if !opts.verbose {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+
+        let status = command.status()?;
 
         if status.success() {
+            tracing::info!("Rust {version}: check ok");
             candidates.ok();
         } else {
+            tracing::info!("Rust {version}: check failed");
             candidates.fail();
+        }
+    }
+
+    if let Some(version) = candidates.current {
+        let version = format!("1.{version}");
+        tracing::info!("Supported msrv: Rust {version}");
+
+        if opts.save {
+            for p in workspace.packages_mut() {
+                if p.manifest.is_publish()? {
+                    tracing::info!(
+                        "Saving {} with rust-version = \"{version}\"",
+                        p.manifest_path
+                    );
+                    p.manifest.set_rust_version(&version)?;
+                    p.manifest.sort_package_keys()?;
+                    p.manifest.save_to(p.manifest_path.to_path(cx.root))?;
+                }
+            }
+        }
+    } else {
+        for (from, to) in restore {
+            move_paths(&from, &to)?;
         }
     }
 
@@ -115,7 +159,7 @@ fn build(cx: &Ctxt, workspace: &mut Workspace) -> Result<()> {
 }
 
 fn move_paths(from: &Path, to: &Path) -> Result<()> {
-    tracing::info!("moving {} -> {}", from.display(), to.display());
+    tracing::trace!("moving {} -> {}", from.display(), to.display());
 
     if to.exists() {
         let _ = std::fs::remove_file(to).with_context(|| anyhow!("{}", to.display()));
@@ -159,7 +203,7 @@ impl Candidates {
 
     fn fail(&mut self) {
         if let Some(current) = self.current.take() {
-            self.start = current;
+            self.start = (current + 1).min(self.end);
             self.current = Some(midpoint(self.start, self.end));
         }
     }

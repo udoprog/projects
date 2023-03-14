@@ -63,7 +63,7 @@ macro_rules! cargo_keys {
             }
         }
 
-        fn cargo_key(key: &str) -> Option<CargoKey> {
+        pub(crate) fn cargo_key(key: &str) -> Option<CargoKey> {
             match key {
                 $($name => Some(CargoKey::$ident),)*
                 _ => None,
@@ -96,12 +96,6 @@ pub(crate) fn work_cargo_toml(
     validation: &mut Vec<Validation>,
     update: &UpdateParams<'_>,
 ) -> Result<()> {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    enum SortKey<'a> {
-        CargoKey(CargoKey),
-        Other(&'a toml_edit::Key),
-    }
-
     let mut modified_manifest = package.manifest.clone();
     let mut issues = Vec::new();
     let mut changed = false;
@@ -252,15 +246,7 @@ pub(crate) fn work_cargo_toml(
                 actual: keys,
                 expected: sorted_keys,
             });
-            modified_manifest.sort_package_keys(|a, _, b, _| {
-                let a = cargo_key(a.to_string().trim())
-                    .map(SortKey::CargoKey)
-                    .unwrap_or(SortKey::Other(a));
-                let b = cargo_key(b.to_string().trim())
-                    .map(SortKey::CargoKey)
-                    .unwrap_or(SortKey::Other(b));
-                a.cmp(&b)
-            })?;
+            modified_manifest.sort_package_keys()?;
             changed = true;
         }
     }

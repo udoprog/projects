@@ -1,10 +1,9 @@
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use relative_path::RelativePath;
-use toml_edit::{Array, Document, Formatted, Item, Key, Table, Value};
+use toml_edit::{Array, Document, Formatted, Item, Table, Value};
 
 /// A parsed `Cargo.toml`.
 #[derive(Debug, Clone)]
@@ -147,13 +146,38 @@ impl Manifest {
         false
     }
 
-    /// Sort package keys.
-    pub(crate) fn sort_package_keys<F>(&mut self, compare: F) -> Result<()>
-    where
-        F: FnMut(&Key, &Item, &Key, &Item) -> Ordering,
-    {
+    /// Set rust-version to the desirable value.
+    pub(crate) fn set_rust_version(&mut self, version: &str) -> Result<()> {
         let package = self.ensure_package_mut()?;
-        package.sort_values_by(compare);
+        package.insert(
+            "rust-version",
+            Item::Value(Value::String(Formatted::new(String::from(version)))),
+        );
+        Ok(())
+    }
+
+    /// Sort package keys.
+    pub(crate) fn sort_package_keys(&mut self) -> Result<()> {
+        use crate::validation::cargo::CargoKey;
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        enum SortKey<'a> {
+            CargoKey(CargoKey),
+            Other(&'a toml_edit::Key),
+        }
+
+        let package = self.ensure_package_mut()?;
+
+        package.sort_values_by(|a, _, b, _| {
+            let a = crate::validation::cargo::cargo_key(a.to_string().trim())
+                .map(SortKey::CargoKey)
+                .unwrap_or(SortKey::Other(a));
+            let b = crate::validation::cargo::cargo_key(b.to_string().trim())
+                .map(SortKey::CargoKey)
+                .unwrap_or(SortKey::Other(b));
+            a.cmp(&b)
+        });
+
         Ok(())
     }
 
