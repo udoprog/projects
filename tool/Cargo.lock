@@ -575,6 +575,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "kick"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "handlebars",
+ "pulldown-cmark",
+ "relative-path",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "unicycle",
+ "url",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1383,30 +1407,6 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
-]
-
-[[package]]
-name = "tool"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "handlebars",
- "pulldown-cmark",
- "relative-path",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror",
- "tokio",
- "toml",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "unicycle",
- "url",
 ]
 
 [[package]]
