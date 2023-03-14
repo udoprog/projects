@@ -113,6 +113,7 @@ fn expand_members<'a>(
 }
 
 /// A single package in the workspace.
+#[derive(Clone)]
 pub(crate) struct Package {
     pub(crate) manifest_dir: RelativePathBuf,
     pub(crate) manifest_path: RelativePathBuf,

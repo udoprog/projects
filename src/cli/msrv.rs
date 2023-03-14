@@ -7,8 +7,12 @@ use clap::Parser;
 use crate::ctxt::Ctxt;
 use crate::workspace::{self, Workspace};
 
-/// Latest supported minor version.
-const LATEST: u64 = 69;
+/// Oldest verison where rust-version was introduced.
+const RUST_VERSION_SUPPORTED: u64 = 56;
+/// Oldest version to test by default.
+const OLDEST: u64 = RUST_VERSION_SUPPORTED;
+/// Latest version to test by default.
+const LATEST: u64 = 68;
 
 #[derive(Default, Parser)]
 pub(crate) struct Opts {
@@ -21,6 +25,13 @@ pub(crate) struct Opts {
     /// Save new MSRV.
     #[arg(long)]
     save: bool,
+    /// Oldest minor version to test. Default: 1.56.
+    #[arg(long)]
+    oldest: Option<u64>,
+    /// Latest minor version to test. Default detected version from `rustc
+    /// --version`.
+    #[arg(long)]
+    latest: Option<u64>,
     /// Command to test with.
     ///
     /// This is run through `rustup run <version> <command>`, the default
@@ -43,12 +54,32 @@ pub(crate) fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
     Ok(())
 }
 
+/// Minor version from rustc.
+fn rustc_version() -> Option<u64> {
+    let output = Command::new("rustc")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    let output = String::from_utf8(output.stdout).ok()?;
+    tracing::info!("rustc: {output}");
+    let version = output.split(' ').nth(1)?;
+    let version = version.split('.').nth(1)?;
+    let version = version.parse().ok()?;
+    Some(version)
+}
+
 fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
     let primary = workspace
         .primary_crate()?
         .context("missing primary crate")?;
 
     let current_dir = workspace.path().to_path(cx.root);
+
+    let rustc_minor = rustc_version();
 
     let end = match primary.manifest.rust_version()? {
         Some(rust_version) => {
@@ -60,28 +91,20 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
                 bail!("only major version 1 supported");
             }
 
-            minor
+            rustc_minor.into_iter().chain([minor]).min()
         }
-        None => LATEST,
+        None => rustc_minor.into_iter().chain([LATEST]).min(),
     };
 
-    let mut restore = Vec::new();
+    let start = opts
+        .oldest
+        .into_iter()
+        .chain([OLDEST])
+        .min()
+        .unwrap_or(OLDEST);
+    let end = end.unwrap_or(LATEST);
 
-    for p in workspace.packages_mut() {
-        let original = p.manifest_path.with_extension("toml.original");
-        let original_path = original.to_path(cx.root);
-        let manifest_path = p.manifest_path.to_path(cx.root);
-
-        if p.manifest.remove_rust_version() {
-            move_paths(&manifest_path, &original_path)?;
-            tracing::info!("saving {}", p.manifest_path);
-            p.manifest.save_to(&manifest_path)?;
-            restore.push((original_path, manifest_path));
-        }
-    }
-
-    let start = 0u64;
-
+    tracing::info!("Testing Rust 1.{start}-1.{end}");
     let mut candidates = Candidates::new(start, end);
 
     while let Some(next) = candidates.current() {
@@ -104,7 +127,25 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
             }
         }
 
-        tracing::trace!("testing against rust {version}");
+        let mut restore = Vec::new();
+        let mut packages = workspace.packages().cloned().collect::<Vec<_>>();
+
+        if next < RUST_VERSION_SUPPORTED {
+            for p in &mut packages {
+                let original = p.manifest_path.with_extension("toml.original");
+                let original_path = original.to_path(cx.root);
+                let manifest_path = p.manifest_path.to_path(cx.root);
+
+                if p.manifest.remove_rust_version() {
+                    move_paths(&manifest_path, &original_path)?;
+                    tracing::info!("Saving {}", p.manifest_path);
+                    p.manifest.save_to(&manifest_path)?;
+                    restore.push((original_path, manifest_path));
+                }
+            }
+        }
+
+        tracing::trace!("Testing against rust {version}");
 
         let mut command = Command::new("rustup");
         command.args(["run", &version]);
@@ -130,28 +171,40 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
             tracing::info!("Rust {version}: check failed");
             candidates.fail();
         }
+
+        for (from, to) in restore {
+            move_paths(&from, &to)?;
+        }
     }
 
-    if let Some(version) = candidates.current {
-        let version = format!("1.{version}");
+    if let Some(minor) = candidates.current {
+        let version = format!("1.{minor}");
         tracing::info!("Supported msrv: Rust {version}");
 
         if opts.save {
-            for p in workspace.packages_mut() {
-                if p.manifest.is_publish()? {
-                    tracing::info!(
-                        "Saving {} with rust-version = \"{version}\"",
-                        p.manifest_path
-                    );
-                    p.manifest.set_rust_version(&version)?;
-                    p.manifest.sort_package_keys()?;
-                    p.manifest.save_to(p.manifest_path.to_path(cx.root))?;
+            if minor >= RUST_VERSION_SUPPORTED {
+                for p in workspace.packages_mut() {
+                    if p.manifest.is_publish()? {
+                        tracing::info!(
+                            "Saving {} with rust-version = \"{version}\"",
+                            p.manifest_path
+                        );
+                        p.manifest.set_rust_version(&version)?;
+                        p.manifest.sort_package_keys()?;
+                        p.manifest.save_to(p.manifest_path.to_path(cx.root))?;
+                    }
+                }
+            } else {
+                for p in workspace.packages_mut() {
+                    if p.manifest.remove_rust_version() {
+                        tracing::info!(
+                            "Saving {} without rust-version (target version outdates rust-version)",
+                            p.manifest_path
+                        );
+                        p.manifest.save_to(p.manifest_path.to_path(cx.root))?;
+                    }
                 }
             }
-        }
-    } else {
-        for (from, to) in restore {
-            move_paths(&from, &to)?;
         }
     }
 
