@@ -19,6 +19,7 @@ use clap::{Parser, Subcommand};
 use model::Module;
 
 use actions::Actions;
+use tracing::metadata::LevelFilter;
 
 const PROJECTS_TOML: &str = "Projects.toml";
 
@@ -53,7 +54,11 @@ impl Default for Action {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .try_init()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 

@@ -164,8 +164,13 @@ impl Workspace {
     }
 
     /// Get list of packages.
-    pub(crate) fn packages<'a>(&'a self) -> impl Iterator<Item = &'a Package> {
+    pub(crate) fn packages(&self) -> impl Iterator<Item = &Package> {
         self.packages.iter()
+    }
+
+    /// Mutable list of packages.
+    pub(crate) fn packages_mut(&mut self) -> impl Iterator<Item = &mut Package> {
+        self.packages.iter_mut()
     }
 
     /// Find the primary crate in the workspace.

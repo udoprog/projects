@@ -136,6 +136,17 @@ impl Manifest {
         self.package_value("rust-version", Item::as_str)
     }
 
+    /// Remove rust-version.
+    pub(crate) fn remove_rust_version(&mut self) -> bool {
+        if let Some(package) = self.doc.get_mut("package") {
+            if let Some(table) = package.as_table_like_mut() {
+                return table.remove("rust-version").is_some();
+            }
+        }
+
+        false
+    }
+
     /// Sort package keys.
     pub(crate) fn sort_package_keys<F>(&mut self, compare: F) -> Result<()>
     where
