@@ -35,6 +35,12 @@ src = "https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.y
 href = "{{github}}/{{crate.repo}}/actions?query=branch%3Amain"
 height = "{{badge_height}}"
 
+[repos."repos/aiocp"]
+crate = "iocp"
+
+[repos."repos/quickcfg"]
+disabled = ["ci"]
+
 [repos."repos/rune"]
 header = """
 <div align="center">

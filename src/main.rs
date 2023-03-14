@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -387,14 +386,14 @@ fn run_module(
         return Ok(());
     };
 
-    let cargo_toml = match module.cargo_toml {
+    let cargo_toml = match cx.config.cargo_toml(module.name) {
         Some(cargo_toml) => module_path.join(cargo_toml),
         None => module_path.join(workspace::CARGO_TOML),
     };
 
     let workspace = workspace::open(cx.root, &cargo_toml)?;
 
-    let primary_crate = module.krate.or(repo.split('/').last());
+    let primary_crate = cx.config.crate_for(module.name).or(repo.split('/').last());
 
     let primary_crate = match workspace.primary_crate(primary_crate)? {
         Some(primary_crate) => primary_crate,
@@ -429,7 +428,7 @@ fn run_module(
         }
     }
 
-    if module.is_enabled("ci") {
+    if cx.config.is_enabled(module.name, "ci") {
         let path = module_path.join(".github").join("workflows");
         let ci = Ci::new(
             &path,
@@ -442,7 +441,7 @@ fn run_module(
             .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
     }
 
-    if module.is_enabled("readme") {
+    if cx.config.is_enabled(module.name, "readme") {
         build_readme(
             &cx,
             module.name,
@@ -743,17 +742,9 @@ pub(crate) struct Module<'a> {
     name: &'a str,
     path: Option<&'a RelativePath>,
     url: Option<Url>,
-    cargo_toml: Option<&'a RelativePath>,
-    krate: Option<&'a str>,
-    disabled: BTreeSet<&'a str>,
 }
 
 impl Module<'_> {
-    /// Test if a feature is disabled.
-    fn is_enabled(&self, feature: &str) -> bool {
-        !self.disabled.contains(feature)
-    }
-
     /// Repo name.
     fn repo(&self) -> Option<&str> {
         let url = self.url.as_ref()?;
@@ -784,9 +775,6 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<Module<'_>>> {
     ) -> Result<Option<Module<'a>>> {
         let mut path = None;
         let mut url = None;
-        let mut disabled = BTreeSet::new();
-        let mut cargo_toml = None;
-        let mut krate = None;
 
         let mut section = match parser.parse_section()? {
             Some(section) => section,
@@ -803,19 +791,6 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<Module<'_>>> {
                     let string = std::str::from_utf8(value)?;
                     url = Some(str::parse::<Url>(string)?);
                 }
-                "cargo-toml" => {
-                    let string = std::str::from_utf8(value)?;
-                    cargo_toml = Some(RelativePath::new(string));
-                }
-                "crate" => {
-                    krate = Some(std::str::from_utf8(value)?);
-                }
-                "disabled" => {
-                    disabled = std::str::from_utf8(value)?
-                        .split(',')
-                        .map(str::trim)
-                        .collect();
-                }
                 _ => {}
             }
         }
@@ -824,9 +799,6 @@ pub(crate) fn parse_git_modules(input: &[u8]) -> Result<Vec<Module<'_>>> {
             name: section.name(),
             path,
             url,
-            cargo_toml,
-            krate,
-            disabled,
         }))
     }
 }

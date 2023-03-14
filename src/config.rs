@@ -1,9 +1,9 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
-use relative_path::RelativePathBuf;
+use relative_path::{RelativePath, RelativePathBuf};
 use serde::Serialize;
 
 use crate::model::CrateParams;
@@ -41,6 +41,12 @@ pub(crate) struct Repo {
     pub(crate) header: Option<Template>,
     /// Custom badges for a specific project.
     pub(crate) badges: Vec<ConfigBadge>,
+    /// Override crate to use.
+    pub(crate) krate: Option<String>,
+    /// Path to Cargo.toml to build.
+    pub(crate) cargo_toml: Option<RelativePathBuf>,
+    /// Disabled modules.
+    pub(crate) disabled: BTreeSet<String>,
 }
 
 pub(crate) struct Config {
@@ -84,6 +90,25 @@ impl Config {
 
     pub(crate) fn license(&self) -> &str {
         self.license.as_deref().unwrap_or(DEFAULT_LICENSE)
+    }
+
+    /// Get crate for the given repo.
+    pub(crate) fn crate_for<'a>(&'a self, name: &str) -> Option<&'a str> {
+        self.repos.get(name)?.krate.as_deref()
+    }
+
+    /// Get Cargo.toml path for the given module.
+    pub(crate) fn cargo_toml<'a>(&'a self, name: &str) -> Option<&'a RelativePath> {
+        self.repos.get(name)?.cargo_toml.as_deref()
+    }
+
+    /// Get Cargo.toml path for the given module.
+    pub(crate) fn is_enabled<'a>(&'a self, name: &str, feature: &str) -> bool {
+        let Some(repo) = self.repos.get(name) else {
+            return true;
+        };
+
+        !repo.disabled.contains(feature)
     }
 }
 
@@ -335,9 +360,24 @@ where
             let _ = self
                 .in_boolean(&mut config, "center_badges")?
                 .unwrap_or_default();
+            let krate = self.as_string(&mut config, "crate")?;
+
+            let cargo_toml = self.in_string(&mut config, "cargo_toml", |_, string| {
+                Ok(RelativePathBuf::from(string))
+            })?;
+
+            let disabled = self.in_array(&mut config, "disabled", |cx, item| cx.string(item))?;
+
+            let disabled = disabled.unwrap_or_default().into_iter().collect();
             self.ensure_empty(config)?;
 
-            Ok(Repo { header, badges })
+            Ok(Repo {
+                header,
+                badges,
+                krate,
+                cargo_toml,
+                disabled,
+            })
         }
     }
 
