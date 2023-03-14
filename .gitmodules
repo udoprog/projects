@@ -88,3 +88,6 @@
 [submodule "repos/sqlite-ll"]
 	path = repos/sqlite-ll
 	url = https://github.com/udoprog/sqlite-ll
+[submodule "repos/gorilla"]
+	path = repos/gorilla
+	url = https://github.com/udoprog/gorilla
