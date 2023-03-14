@@ -3,9 +3,10 @@ use std::process::{Command, Stdio};
 
 use anyhow::{anyhow, Result};
 
-pub(crate) fn head_commit(current_dir: &Path) -> Result<String> {
+/// Get HEAD commit.
+pub(crate) fn rev_parse(current_dir: &Path, rev: &str) -> Result<String> {
     let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
+        .args(["rev-parse", rev])
         .stdout(Stdio::piped())
         .current_dir(&current_dir)
         .output()?;

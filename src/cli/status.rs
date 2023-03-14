@@ -51,7 +51,8 @@ pub(crate) async fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
         };
 
         let current_dir = path.to_path(cx.root);
-        let sha = git::head_commit(&current_dir).with_context(|| anyhow!("{}", module.name))?;
+        let sha =
+            git::rev_parse(&current_dir, "HEAD").with_context(|| anyhow!("{}", module.name))?;
         let sha = sha.trim();
 
         let url =

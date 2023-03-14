@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use pulldown_cmark::{LinkType, Options};
+use pulldown_cmark::{Event, HeadingLevel, LinkType, Options, Parser, Tag};
 use relative_path::RelativePath;
 use reqwest::Url;
 use serde::Serialize;
@@ -22,14 +22,14 @@ pub(crate) const README_MD: &str = "README.md";
 /// Marker that is put into the generated header to indicate when it ends.
 const HEADER_MARKER: &str = "<!--- header -->";
 
-struct Ctxt<'a, 'outer, 'b> {
+struct Ctxt<'a, 'outer> {
     root: &'a Path,
     name: &'a str,
     path: &'a RelativePath,
     entry: &'a RelativePath,
     params: CrateParams<'a>,
     config: &'a Config,
-    validation: &'outer mut Vec<Validation<'b>>,
+    validation: &'outer mut Vec<Validation>,
     urls: &'outer mut Urls,
 }
 
@@ -40,7 +40,7 @@ pub(crate) fn build(
     path: &RelativePath,
     package: &Package,
     params: CrateParams<'_>,
-    validation: &mut Vec<Validation<'_>>,
+    validation: &mut Vec<Validation>,
     urls: &mut Urls,
 ) -> Result<()> {
     let readme_path = path.join(README_MD);
@@ -78,7 +78,7 @@ struct MarkdownChecks {
 }
 
 /// Validate the current model.
-fn validate(cx: &mut Ctxt<'_, '_, '_>) -> Result<()> {
+fn validate(cx: &mut Ctxt<'_, '_>) -> Result<()> {
     if !cx.path.to_path(cx.root).is_file() {
         cx.validation.push(Validation::MissingReadme {
             path: cx.path.to_owned(),
@@ -134,7 +134,7 @@ fn validate(cx: &mut Ctxt<'_, '_, '_>) -> Result<()> {
 }
 
 /// Process the lib rs.
-fn process_lib_rs(cx: &Ctxt<'_, '_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
+fn process_lib_rs(cx: &Ctxt<'_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
     /// Test if line is a badge comment.
     fn is_badge_comment(c: &[u8]) -> bool {
         let c = trim_ascii(c);
@@ -282,9 +282,7 @@ fn process_lib_rs(cx: &Ctxt<'_, '_, '_>) -> Result<(Arc<File>, Arc<File>), anyho
 }
 
 /// Test if the specified file has toplevel headings.
-fn markdown_checks(cx: &mut Ctxt<'_, '_, '_>, file: &Arc<File>) -> Result<MarkdownChecks> {
-    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
-
+fn markdown_checks(cx: &mut Ctxt<'_, '_>, file: &Arc<File>) -> Result<MarkdownChecks> {
     let mut comment = Vec::new();
 
     let mut initial = true;
@@ -351,7 +349,7 @@ fn markdown_checks(cx: &mut Ctxt<'_, '_, '_>, file: &Arc<File>) -> Result<Markdo
 
 /// Insert an URL.
 fn visit_url(
-    cx: &mut Ctxt<'_, '_, '_>,
+    cx: &mut Ctxt<'_, '_>,
     url: &str,
     file: &Arc<File>,
     range: &Range<usize>,

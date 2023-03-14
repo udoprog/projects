@@ -93,7 +93,7 @@ cargo_keys! {
 /// Validate the main `Cargo.toml`.
 pub(crate) fn work_cargo_toml(
     package: &Package,
-    validation: &mut Vec<Validation<'_>>,
+    validation: &mut Vec<Validation>,
     update: &UpdateParams<'_>,
 ) -> Result<()> {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use crate::manifest::{self, Manifest};
+use crate::{
+    manifest::{self, Manifest},
+    model::{CrateParams, Module},
+};
 use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 
@@ -121,6 +124,15 @@ impl Package {
                 self.manifest_dir.join("src").join("main.rs"),
             ]
         }
+    }
+
+    /// Construct crate parameters.
+    pub(crate) fn crate_params<'a>(&'a self, module: &'a Module<'_>) -> Result<CrateParams<'a>> {
+        Ok(CrateParams {
+            repo: module.repo(),
+            name: self.manifest.crate_name()?,
+            description: self.manifest.description()?,
+        })
     }
 }
 

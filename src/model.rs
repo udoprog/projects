@@ -10,9 +10,28 @@ use crate::gitmodules;
 /// Badge building parameters.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub(crate) struct CrateParams<'a> {
-    pub(crate) repo: &'a str,
+    pub(crate) repo: Option<&'a str>,
     pub(crate) name: &'a str,
     pub(crate) description: Option<&'a str>,
+}
+
+impl CrateParams<'_> {
+    /// Coerce into owned.
+    pub(crate) fn into_owned(self) -> OwnedCrateParams {
+        OwnedCrateParams {
+            repo: self.repo.map(str::to_owned),
+            name: self.name.to_owned(),
+            description: self.description.map(str::to_owned),
+        }
+    }
+}
+
+/// Owned crate parameters.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct OwnedCrateParams {
+    pub(crate) repo: Option<String>,
+    pub(crate) name: String,
+    pub(crate) description: Option<String>,
 }
 
 /// Update parameters.

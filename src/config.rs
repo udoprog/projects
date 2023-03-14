@@ -15,16 +15,9 @@ const DEFAULT_JOB_NAME: &str = "CI";
 const DEFAULT_LICENSE: &str = "MIT/Apache-2.0";
 
 #[derive(Serialize)]
-pub(crate) struct PerCrateRender<'a> {
+pub(crate) struct PerCrateRender<'a, T: 'a> {
     #[serde(rename = "crate")]
-    pub(crate) crate_params: CrateParams<'a>,
-    config: ConfigRender<'a>,
-    #[serde(flatten)]
-    extra: &'a toml::Value,
-}
-
-#[derive(Serialize)]
-pub(crate) struct GlobalRender<'a> {
+    pub(crate) crate_params: T,
     config: ConfigRender<'a>,
     #[serde(flatten)]
     extra: &'a toml::Value,
@@ -49,7 +42,7 @@ pub(crate) struct Repo {
 }
 
 pub(crate) struct Config {
-    pub(crate) default_workflow: Option<Template>,
+    default_workflow: Option<Template>,
     pub(crate) job_name: Option<String>,
     pub(crate) license: Option<String>,
     pub(crate) authors: Vec<String>,
@@ -60,18 +53,22 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// Global render parameters.
-    pub(crate) fn global_render<'a>(&'a self) -> GlobalRender<'a> {
-        GlobalRender {
-            config: self.config_render(),
-            extra: &self.extra,
-        }
+    /// Generate a default workflow.
+    pub(crate) fn default_workflow<T>(&self, crate_params: T) -> Result<Option<String>>
+    where
+        T: Serialize,
+    {
+        let Some(template) = &self.default_workflow  else {
+            return Ok(None);
+        };
+
+        Ok(Some(template.render(&self.per_crate_render(crate_params))?))
     }
 
     /// Set up render parameters.
-    pub(crate) fn per_crate_render<'a>(&'a self, krate: CrateParams<'a>) -> PerCrateRender<'a> {
+    pub(crate) fn per_crate_render<'a, T: 'a>(&'a self, crate_params: T) -> PerCrateRender<'a, T> {
         PerCrateRender {
-            crate_params: krate,
+            crate_params,
             config: self.config_render(),
             extra: &self.extra,
         }

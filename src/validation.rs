@@ -13,17 +13,18 @@ use self::ci::ActionExpected;
 use crate::ctxt::Ctxt;
 use crate::file::File;
 use crate::manifest::Manifest;
-use crate::model::{CrateParams, Module, UpdateParams};
+use crate::model::{Module, OwnedCrateParams, UpdateParams};
 use crate::urls::Urls;
-use crate::workspace::{self};
+use crate::workspace;
 
-pub(crate) enum Validation<'a> {
+pub(crate) enum Validation {
     DeprecatedWorkflow {
         path: RelativePathBuf,
     },
     MissingWorkflow {
         path: RelativePathBuf,
         candidates: Box<[RelativePathBuf]>,
+        crate_params: OwnedCrateParams,
     },
     WrongWorkflowName {
         path: RelativePathBuf,
@@ -92,18 +93,18 @@ pub(crate) enum Validation<'a> {
     },
     ActionMissingKey {
         path: RelativePathBuf,
-        key: &'a str,
+        key: Box<str>,
         expected: ActionExpected,
         actual: Option<serde_yaml::Value>,
     },
     ActionOnMissingBranch {
         path: RelativePathBuf,
-        key: &'a str,
-        branch: &'a str,
+        key: Box<str>,
+        branch: Box<str>,
     },
     ActionExpectedEmptyMapping {
         path: RelativePathBuf,
-        key: &'a str,
+        key: Box<str>,
     },
 }
 
@@ -136,11 +137,9 @@ pub(crate) fn build(
         None => return Err(anyhow!("{module_path}: cannot determine primary crate",)),
     };
 
-    let params = cx.config.per_crate_render(CrateParams {
-        repo: &repo,
-        name: primary_crate.manifest.crate_name()?,
-        description: primary_crate.manifest.description()?,
-    });
+    let params = cx
+        .config
+        .per_crate_render(primary_crate.crate_params(module)?);
 
     let documentation = match &cx.config.documentation {
         Some(documentation) => Some(documentation.render(&params)?),
@@ -165,8 +164,15 @@ pub(crate) fn build(
     }
 
     if cx.config.is_enabled(module.name, "ci") {
-        ci::build(&cx, &primary_crate, module_path, &workspace, validation)
-            .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
+        ci::build(
+            &cx,
+            &primary_crate,
+            module,
+            module_path,
+            &workspace,
+            validation,
+        )
+        .with_context(|| anyhow!("ci validation: {}", cx.config.job_name()))?;
     }
 
     if cx.config.is_enabled(module.name, "readme") {
@@ -183,11 +189,7 @@ pub(crate) fn build(
         for package in workspace.packages() {
             if package.manifest_dir != module_path {
                 if package.manifest.is_publish()? {
-                    let crate_params = CrateParams {
-                        repo: &repo,
-                        name: package.manifest.crate_name()?,
-                        description: package.manifest.description()?,
-                    };
+                    let crate_params = package.crate_params(&module)?;
 
                     readme::build(
                         cx,

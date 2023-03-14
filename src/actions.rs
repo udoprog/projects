@@ -1,7 +1,3 @@
-pub(crate) mod check;
-pub(crate) mod foreach;
-pub(crate) mod status;
-
 use std::collections::HashMap;
 
 /// A single actions check.
@@ -46,5 +42,22 @@ impl<'a> Actions<'a> {
     /// Get denied.
     pub(crate) fn get_check(&self, name: &str) -> Option<&dyn ActionsCheck> {
         self.checks.get(name).copied()
+    }
+}
+
+pub(crate) struct ActionsRsToolchainActionsCheck;
+
+impl ActionsCheck for ActionsRsToolchainActionsCheck {
+    fn check(&self, mapping: &serde_yaml::Mapping) -> Result<(), String> {
+        let with = match mapping.get("with").and_then(|v| v.as_mapping()) {
+            Some(with) => with,
+            None => return Err(String::from("missing with")),
+        };
+
+        if with.get("toolchain").and_then(|v| v.as_str()).is_none() {
+            return Err(String::from("missing toolchain"));
+        }
+
+        Ok(())
     }
 }

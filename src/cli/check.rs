@@ -60,7 +60,11 @@ pub(crate) async fn entry(cx: &Ctxt<'_>, opts: &Opts, fix: bool) -> Result<()> {
 /// Report and apply a asingle validation.
 fn validate(cx: &Ctxt<'_>, error: &Validation, fix: bool) -> Result<()> {
     Ok(match error {
-        Validation::MissingWorkflow { path, candidates } => {
+        Validation::MissingWorkflow {
+            path,
+            candidates,
+            crate_params,
+        } => {
             println!("{path}: Missing workflow");
 
             for candidate in candidates.iter() {
@@ -80,7 +84,12 @@ fn validate(cx: &Ctxt<'_>, error: &Validation, fix: bool) -> Result<()> {
                         }
                     }
 
-                    std::fs::write(path, &cx.default_workflow)?;
+                    let Some(string) = cx.config.default_workflow(crate_params)? else {
+                        println!("  Missing default workflow!");
+                        return Ok(());
+                    };
+
+                    std::fs::write(path, string)?;
                 }
             }
         }

@@ -1,4 +1,4 @@
-name: CI
+name: {{config.job_name}}
 
 on:
   pull_request: {}
