@@ -131,6 +131,11 @@ impl Manifest {
         self.package_value("description", Item::as_str)
     }
 
+    /// Rust version.
+    pub(crate) fn rust_version(&self) -> Result<Option<&str>> {
+        self.package_value("rust-version", Item::as_str)
+    }
+
     /// Sort package keys.
     pub(crate) fn sort_package_keys<F>(&mut self, compare: F) -> Result<()>
     where
