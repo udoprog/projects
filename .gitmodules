@@ -94,3 +94,6 @@
 [submodule "repos/kick"]
 	path = repos/kick
 	url = https://github.com/udoprog/kick
+[submodule "repos/OxidizeBot"]
+	path = repos/OxidizeBot
+	url = https://github.com/udoprog/OxidizeBot

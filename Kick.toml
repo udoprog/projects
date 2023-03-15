@@ -18,12 +18,14 @@ href = "{{github}}/{{crate.repo}}"
 height = "{{badge_height}}"
 
 [[badges]]
+id = "crates.io"
 alt = "crates.io"
 src = "https://img.shields.io/crates/v/{{crate.name}}.svg?style=for-the-badge&color={{badge_colors.crates_io}}&logo=rust"
 href = "https://crates.io/crates/{{crate.name}}"
 height = "{{badge_height}}"
 
 [[badges]]
+id = "docs.rs"
 alt = "docs.rs"
 src = "https://img.shields.io/badge/docs.rs-{{dash_escape crate.name}}-{{badge_colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}"
 href = "{{docs_rs}}/{{crate.name}}"
@@ -35,13 +37,54 @@ src = "https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.y
 href = "{{github}}/{{crate.repo}}/actions?query=branch%3Amain"
 height = "{{badge_height}}"
 
+[[badges]]
+id = "discord"
+alt = "chat on discord"
+src = "https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square"
+href = "https://discord.gg/v5AeNkT"
+height = "{{badge_height}}"
+enabled = false
+
 [repos."repos/aiocp"]
 crate = "iocp"
 
 [repos."repos/quickcfg"]
 disabled = ["ci"]
 
+[repos."repos/OxidizeBot"]
+crate = "oxidize"
+disabled_badges = ["docs.rs", "crates.io"]
+enabled_badges = ["discord"]
+header = """
+<div align="center">
+    <a href="https://setbac.tv">
+        <img src="https://raw.githubusercontent.com/udoprog/OxidizeBot/main/bot/res/icon48.png" title="Oxidize Bot">
+    </a>
+</div>
+
+<p align="center">
+    {{description}}
+</p>
+
+<div align="center">
+{{#each badges}}
+    {{literal this.html}}
+{{/each}}
+</div>
+
+<div align="center">
+    <a href="https://setbac.tv/" rel="nofollow">Site 🌐</a>
+    &ndash;
+    <a href="https://setbac.tv/help" rel="nofollow">Command Help ❓</a>
+</div>
+{{#if is_more}}
+
+<br>
+{{/if}}
+"""
+
 [repos."repos/rune"]
+enabled_badges = ["discord"]
 header = """
 <div align="center">
 {{#each badges}}
@@ -71,9 +114,3 @@ header = """
 <br>
 {{/if}}
 """
-
-[[repos."repos/rune".badges]]
-alt = "chat on discord"
-src = "https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square"
-href = "https://discord.gg/v5AeNkT"
-height = "{{badge_height}}"
