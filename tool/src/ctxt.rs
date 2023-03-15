@@ -26,7 +26,8 @@ pub(crate) fn rustc_version() -> Option<RustVersion> {
         .ok()?;
 
     let output = String::from_utf8(output.stdout).ok()?;
-    tracing::info!("rustc: {output}");
+    let output = output.trim();
+    tracing::trace!("rustc --version: {output}");
     let version = output.split(' ').nth(1)?;
     RustVersion::parse(version)
 }
