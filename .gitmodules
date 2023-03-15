@@ -91,3 +91,9 @@
 [submodule "repos/gorilla"]
 	path = repos/gorilla
 	url = https://github.com/udoprog/gorilla
+[submodule "repos/rust-tsz"]
+	path = repos/gorilla
+	url = https://github.com/udoprog/gorilla
+[submodule "repos/kick"]
+	path = repos/kick
+	url = https://github.com/udoprog/kick
