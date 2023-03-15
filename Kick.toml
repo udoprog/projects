@@ -53,11 +53,13 @@ disabled = ["ci"]
 
 [repos."repos/OxidizeBot"]
 crate = "oxidize"
+lib = "data/OxidizeBot.lib.md"
+readme = "data/OxidizeBot.readme.md"
 disabled_badges = ["docs.rs", "crates.io"]
 enabled_badges = ["discord"]
-header = "data/OxidizeBot.header.md"
 variables = { badge_height = 24 }
 
 [repos."repos/rune"]
+lib = "data/rune.lib.md"
+readme = "data/rune.readme.md"
 enabled_badges = ["discord"]
-header = "data/rune.header.md"
