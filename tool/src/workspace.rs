@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
-use crate::ctxt::{Ctxt, RustVersion, RustVersions};
+use crate::ctxt::Ctxt;
 use crate::manifest::{self, Manifest};
 use crate::model::{CrateParams, Module};
+use crate::rust_version::RustVersion;
 use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 
@@ -138,27 +139,21 @@ impl Package {
     }
 
     /// Construct crate parameters.
-    pub(crate) fn crate_params<'a>(
-        &'a self,
-        cx: &Ctxt<'_>,
-        module: &'a Module<'_>,
-    ) -> Result<CrateParams<'a>> {
+    pub(crate) fn crate_params<'a>(&'a self, module: &'a Module<'_>) -> Result<CrateParams<'a>> {
         Ok(CrateParams {
             repo: module.repo(),
             name: self.manifest.crate_name()?,
             description: self.manifest.description()?,
-            rust_versions: self.rust_versions(cx)?,
+            rust_version: self.rust_version()?,
         })
     }
 
     /// Rust versions for a specific manifest.
-    pub(crate) fn rust_versions(&self, cx: &Ctxt) -> Result<RustVersions> {
-        let rust_version = match self.manifest.rust_version()? {
+    pub(crate) fn rust_version(&self) -> Result<Option<RustVersion>> {
+        Ok(match self.manifest.rust_version()? {
             Some(rust_version) => RustVersion::parse(rust_version),
             None => None,
-        };
-
-        Ok(RustVersions::new(cx.rustc_version, rust_version))
+        })
     }
 }
 

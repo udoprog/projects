@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -9,7 +8,7 @@ use relative_path::RelativePath;
 use reqwest::Url;
 use serde::Serialize;
 
-use crate::config::Config;
+use crate::ctxt::Ctxt;
 use crate::file::File;
 use crate::model::CrateParams;
 use crate::urls::Urls;
@@ -22,20 +21,18 @@ pub(crate) const README_MD: &str = "README.md";
 /// Marker that is put into the generated header to indicate when it ends.
 const HEADER_MARKER: &str = "<!--- header -->";
 
-struct Ctxt<'a, 'outer> {
-    root: &'a Path,
+struct Readme<'a, 'outer> {
     name: &'a str,
     path: &'a RelativePath,
     entry: &'a RelativePath,
     params: CrateParams<'a>,
-    config: &'a Config,
     validation: &'outer mut Vec<Validation>,
     urls: &'outer mut Urls,
 }
 
 /// Perform readme validation.
 pub(crate) fn build(
-    cx: &crate::ctxt::Ctxt<'_>,
+    cx: &Ctxt<'_>,
     path: &RelativePath,
     name: &str,
     package: &Package,
@@ -55,18 +52,16 @@ pub(crate) fn build(
         bail!("{name}: missing existing entrypoint")
     };
 
-    let mut cx = Ctxt {
-        root: cx.root,
+    let mut readme = Readme {
         name,
         path: &readme_path,
         entry: &entry,
         params,
-        config: cx.config,
-        validation: &mut *validation,
-        urls: &mut *urls,
+        validation,
+        urls,
     };
 
-    validate(&mut cx).with_context(|| anyhow!("{readme_path}: readme validation"))?;
+    validate(cx, &mut readme).with_context(|| anyhow!("{readme_path}: readme validation"))?;
     Ok(())
 }
 
@@ -78,20 +73,20 @@ struct MarkdownChecks {
 }
 
 /// Validate the current model.
-fn validate(cx: &mut Ctxt<'_, '_>) -> Result<()> {
-    if !cx.path.to_path(cx.root).is_file() {
-        cx.validation.push(Validation::MissingReadme {
-            path: cx.path.to_owned(),
+fn validate(cx: &Ctxt<'_>, rm: &mut Readme<'_, '_>) -> Result<()> {
+    if !rm.path.to_path(cx.root).is_file() {
+        rm.validation.push(Validation::MissingReadme {
+            path: rm.path.to_owned(),
         });
     }
 
-    if cx.entry.to_path(cx.root).is_file() {
-        let (file, new_file) = process_lib_rs(cx)?;
-        let checks = markdown_checks(cx, &file)?;
+    if rm.entry.to_path(cx.root).is_file() {
+        let (file, new_file) = process_lib_rs(cx, rm)?;
+        let checks = markdown_checks(rm, &file)?;
 
         for (file, range) in checks.toplevel_headings {
-            cx.validation.push(Validation::ToplevelHeadings {
-                path: cx.entry.to_owned(),
+            rm.validation.push(Validation::ToplevelHeadings {
+                path: rm.entry.to_owned(),
                 file,
                 range,
                 line_offset: checks.line_offset,
@@ -99,32 +94,32 @@ fn validate(cx: &mut Ctxt<'_, '_>) -> Result<()> {
         }
 
         for (file, range) in checks.missing_preceeding_br {
-            cx.validation.push(Validation::MissingPreceedingBr {
-                path: cx.entry.to_owned(),
+            rm.validation.push(Validation::MissingPreceedingBr {
+                path: rm.entry.to_owned(),
                 file,
                 range,
                 line_offset: checks.line_offset,
             });
         }
 
-        let readme_from_lib_rs = readme_from_lib_rs(&new_file, cx.params)?;
+        let readme_from_lib_rs = readme_from_lib_rs(&new_file, rm.params)?;
 
         if *file != *new_file {
-            cx.validation.push(Validation::MismatchedLibRs {
-                path: cx.entry.to_owned(),
+            rm.validation.push(Validation::MismatchedLibRs {
+                path: rm.entry.to_owned(),
                 new_file: new_file.clone(),
             });
         }
 
-        let readme = match File::read(cx.path.to_path(cx.root)) {
+        let readme = match File::read(rm.path.to_path(cx.root)) {
             Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => File::new(),
             Err(e) => return Err(e.into()),
         };
 
         if readme != readme_from_lib_rs {
-            cx.validation.push(Validation::BadReadme {
-                path: cx.path.to_owned(),
+            rm.validation.push(Validation::BadReadme {
+                path: rm.path.to_owned(),
                 new_file: Arc::new(readme_from_lib_rs),
             });
         }
@@ -134,7 +129,10 @@ fn validate(cx: &mut Ctxt<'_, '_>) -> Result<()> {
 }
 
 /// Process the lib rs.
-fn process_lib_rs(cx: &Ctxt<'_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
+fn process_lib_rs(
+    cx: &Ctxt<'_>,
+    readme: &Readme<'_, '_>,
+) -> Result<(Arc<File>, Arc<File>), anyhow::Error> {
     /// Test if line is a badge comment.
     fn is_badge_comment(c: &[u8]) -> bool {
         let c = trim_ascii(c);
@@ -199,21 +197,21 @@ fn process_lib_rs(cx: &Ctxt<'_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::E
         is_more: bool,
     }
 
-    let source = File::read(cx.entry.to_path(cx.root))?;
+    let source = File::read(readme.entry.to_path(cx.root))?;
     let mut new_file = File::new();
 
     let mut badges = Vec::new();
 
-    for badge in cx.config.badges(cx.name) {
+    for badge in cx.config.badges(readme.name) {
         badges.push(BadgeParams {
-            markdown: badge.markdown(cx.params, cx.config)?,
-            html: badge.html(cx.params, cx.config)?,
+            markdown: badge.markdown(cx, &readme.params)?,
+            html: badge.html(cx, &readme.params)?,
         });
     }
 
     let mut source_lines = source.lines().peekable();
 
-    if let Some(header) = cx.config.header(cx.name) {
+    if let Some(header) = cx.config.header(readme.name) {
         let mut found_marker = false;
 
         while let Some(line) = source_lines.peek().and_then(|line| line.as_rust_comment()) {
@@ -234,7 +232,7 @@ fn process_lib_rs(cx: &Ctxt<'_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::E
 
         let header = header.render(&HeaderParams {
             badges: &badges,
-            description: cx.params.description.map(str::trim),
+            description: readme.params.description.map(str::trim),
             is_more: source_lines.peek().is_some(),
         })?;
 
@@ -282,7 +280,7 @@ fn process_lib_rs(cx: &Ctxt<'_, '_>) -> Result<(Arc<File>, Arc<File>), anyhow::E
 }
 
 /// Test if the specified file has toplevel headings.
-fn markdown_checks(cx: &mut Ctxt<'_, '_>, file: &Arc<File>) -> Result<MarkdownChecks> {
+fn markdown_checks(readme: &mut Readme<'_, '_>, file: &Arc<File>) -> Result<MarkdownChecks> {
     let mut comment = Vec::new();
 
     let mut initial = true;
@@ -328,13 +326,13 @@ fn markdown_checks(cx: &mut Ctxt<'_, '_>, file: &Arc<File>) -> Result<MarkdownCh
                     }
                 }
                 Tag::Link(LinkType::Autolink, href, _) => {
-                    visit_url(cx, href.as_ref(), &file, &range, &checks)?;
+                    visit_url(readme, href.as_ref(), &file, &range, &checks)?;
                 }
                 Tag::Link(LinkType::Inline, href, _) => {
-                    visit_url(cx, href.as_ref(), &file, &range, &checks)?;
+                    visit_url(readme, href.as_ref(), &file, &range, &checks)?;
                 }
                 Tag::Link(LinkType::Shortcut, href, _) => {
-                    visit_url(cx, href.as_ref(), &file, &range, &checks)?;
+                    visit_url(readme, href.as_ref(), &file, &range, &checks)?;
                 }
                 _ => {}
             },
@@ -349,7 +347,7 @@ fn markdown_checks(cx: &mut Ctxt<'_, '_>, file: &Arc<File>) -> Result<MarkdownCh
 
 /// Insert an URL.
 fn visit_url(
-    cx: &mut Ctxt<'_, '_>,
+    readme: &mut Readme<'_, '_>,
     url: &str,
     file: &Arc<File>,
     range: &Range<usize>,
@@ -362,11 +360,11 @@ fn visit_url(
 
     let error = match str::parse::<Url>(url) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => {
-            cx.urls.insert(
+            readme.urls.insert(
                 url,
                 file.clone(),
                 range.clone(),
-                cx.entry,
+                readme.entry,
                 checks.line_offset,
             );
 
@@ -376,12 +374,12 @@ fn visit_url(
         Err(e) => e.into(),
     };
 
-    cx.urls.insert_bad_url(
+    readme.urls.insert_bad_url(
         url.to_owned(),
         error,
         file.clone(),
         range.clone(),
-        cx.entry,
+        readme.entry,
         checks.line_offset,
     );
 

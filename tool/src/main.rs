@@ -7,6 +7,7 @@ mod git;
 mod gitmodules;
 mod manifest;
 mod model;
+mod rust_version;
 mod templates;
 mod urls;
 mod validation;

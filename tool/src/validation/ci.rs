@@ -101,7 +101,7 @@ fn validate<'b>(
         ci.validation.push(Validation::MissingWorkflow {
             path: expected_path,
             candidates: candidates.clone(),
-            crate_params: package.crate_params(cx, module)?.into_owned(),
+            crate_params: package.crate_params(module)?.into_owned(),
         });
 
         match path {

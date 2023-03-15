@@ -5,7 +5,8 @@ use relative_path::RelativePath;
 use serde::Serialize;
 use url::Url;
 
-use crate::{ctxt::RustVersions, gitmodules};
+use crate::gitmodules;
+use crate::rust_version::RustVersion;
 
 /// Badge building parameters.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -13,7 +14,7 @@ pub(crate) struct CrateParams<'a> {
     pub(crate) repo: Option<&'a str>,
     pub(crate) name: &'a str,
     pub(crate) description: Option<&'a str>,
-    pub(crate) rust_versions: RustVersions,
+    pub(crate) rust_version: Option<RustVersion>,
 }
 
 impl CrateParams<'_> {
@@ -23,7 +24,7 @@ impl CrateParams<'_> {
             repo: self.repo.map(str::to_owned),
             name: self.name.to_owned(),
             description: self.description.map(str::to_owned),
-            rust_versions: self.rust_versions,
+            rust_version: self.rust_version,
         }
     }
 }
@@ -34,7 +35,7 @@ pub(crate) struct OwnedCrateParams {
     pub(crate) repo: Option<String>,
     pub(crate) name: String,
     pub(crate) description: Option<String>,
-    pub(crate) rust_versions: RustVersions,
+    pub(crate) rust_version: Option<RustVersion>,
 }
 
 /// Update parameters.

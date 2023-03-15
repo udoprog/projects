@@ -6,7 +6,9 @@ use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 use serde::Serialize;
 
+use crate::ctxt::Ctxt;
 use crate::model::CrateParams;
+use crate::rust_version::{self, RustVersion};
 use crate::templates::{Template, Templating};
 
 /// Default job name.
@@ -14,18 +16,23 @@ const DEFAULT_JOB_NAME: &str = "CI";
 /// Default license to use in configuration.
 const DEFAULT_LICENSE: &str = "MIT/Apache-2.0";
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct RenderRustVersions {
+    rustc: Option<RustVersion>,
+    edition_2018: RustVersion,
+    edition_2021: RustVersion,
+}
+
 #[derive(Serialize)]
 pub(crate) struct PerCrateRender<'a, T: 'a> {
     #[serde(rename = "crate")]
     pub(crate) crate_params: T,
-    config: ConfigRender<'a>,
+    /// Current job name.
+    job_name: &'a str,
+    /// Globally known rust versions in use.
+    rust_versions: RenderRustVersions,
     #[serde(flatten)]
     extra: &'a toml::Value,
-}
-
-#[derive(Serialize)]
-struct ConfigRender<'a> {
-    job_name: &'a str,
 }
 
 pub(crate) struct Repo {
@@ -54,7 +61,11 @@ pub(crate) struct Config {
 
 impl Config {
     /// Generate a default workflow.
-    pub(crate) fn default_workflow<T>(&self, crate_params: T) -> Result<Option<String>>
+    pub(crate) fn default_workflow<T>(
+        &self,
+        cx: &Ctxt<'_>,
+        crate_params: T,
+    ) -> Result<Option<String>>
     where
         T: Serialize,
     {
@@ -62,21 +73,26 @@ impl Config {
             return Ok(None);
         };
 
-        Ok(Some(template.render(&self.per_crate_render(crate_params))?))
+        Ok(Some(
+            template.render(&self.per_crate_render(cx, crate_params))?,
+        ))
     }
 
     /// Set up render parameters.
-    pub(crate) fn per_crate_render<'a, T: 'a>(&'a self, crate_params: T) -> PerCrateRender<'a, T> {
+    pub(crate) fn per_crate_render<'a, T: 'a>(
+        &'a self,
+        cx: &Ctxt<'_>,
+        crate_params: T,
+    ) -> PerCrateRender<'a, T> {
         PerCrateRender {
             crate_params,
-            config: self.config_render(),
-            extra: &self.extra,
-        }
-    }
-
-    fn config_render(&self) -> ConfigRender<'_> {
-        ConfigRender {
             job_name: self.job_name(),
+            extra: &self.extra,
+            rust_versions: RenderRustVersions {
+                rustc: cx.rustc_version,
+                edition_2018: rust_version::EDITION_2018,
+                edition_2021: rust_version::EDITION_2021,
+            },
         }
     }
 
@@ -131,10 +147,10 @@ pub(crate) struct ConfigBadge {
 impl ConfigBadge {
     pub(crate) fn markdown(
         &self,
-        krate: CrateParams<'_>,
-        config: &Config,
+        cx: &Ctxt<'_>,
+        params: &CrateParams<'_>,
     ) -> Result<Option<String>> {
-        let data = config.per_crate_render(krate);
+        let data = cx.config.per_crate_render(cx, params);
 
         let Some(template) = self.markdown.as_ref() else {
             return Ok(None);
@@ -143,8 +159,8 @@ impl ConfigBadge {
         Ok(Some(template.render(&data)?))
     }
 
-    pub(crate) fn html(&self, krate: CrateParams<'_>, config: &Config) -> Result<Option<String>> {
-        let data = config.per_crate_render(krate);
+    pub(crate) fn html(&self, cx: &Ctxt<'_>, params: &CrateParams<'_>) -> Result<Option<String>> {
+        let data = cx.config.per_crate_render(cx, params);
 
         let Some(template) = self.html.as_ref() else {
             return Ok(None);

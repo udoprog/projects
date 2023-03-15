@@ -6,7 +6,8 @@ use std::process::{Command, Stdio};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
-use crate::ctxt::{Ctxt, RustVersion, RustVersions};
+use crate::ctxt::Ctxt;
+use crate::rust_version::{self, RustVersion};
 use crate::workspace::{self, Workspace};
 
 /// Oldest version where rust-version was introduced.
@@ -78,21 +79,21 @@ pub(crate) fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
     Ok(())
 }
 
-fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
+fn build(cx: &Ctxt<'_>, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
     let primary = workspace
         .primary_crate()?
         .context("missing primary crate")?;
 
     let current_dir = workspace.path().to_path(cx.root);
-    let rust_versions = primary.rust_versions(cx)?;
+    let rust_version = primary.rust_version()?;
 
-    let opts_earliest = parse_minor_version(opts.earliest.as_deref(), &rust_versions)?;
-    let opts_latest = parse_minor_version(opts.latest.as_deref(), &rust_versions)?;
+    let opts_earliest = parse_minor_version(cx, opts.earliest.as_deref(), rust_version.as_ref())?;
+    let opts_latest = parse_minor_version(cx, opts.latest.as_deref(), rust_version.as_ref())?;
 
     let earliest = opts_earliest.unwrap_or(EARLIEST);
     let latest = opts_latest
-        .or(rust_versions.rustc)
-        .or(rust_versions.rust_version)
+        .or(cx.rustc_version)
+        .or(rust_version)
         .unwrap_or(LATEST)
         .max(earliest);
 
@@ -221,15 +222,16 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
 }
 
 fn parse_minor_version(
+    cx: &Ctxt<'_>,
     string: Option<&str>,
-    rust_versions: &RustVersions,
+    rust_version: Option<&RustVersion>,
 ) -> Result<Option<RustVersion>> {
     Ok(match string {
-        Some("rustc") => rust_versions.rustc,
-        Some("2018") => Some(rust_versions.edition_2018),
-        Some("2021") => Some(rust_versions.edition_2021),
-        Some("workspace") => Some(rust_versions.workspace),
-        Some("rust-version") => rust_versions.rust_version,
+        Some("rustc") => cx.rustc_version,
+        Some("2018") => Some(rust_version::EDITION_2018),
+        Some("2021") => Some(rust_version::EDITION_2021),
+        Some("workspace") => Some(rust_version::WORKSPACE),
+        Some("rust-version") => rust_version.copied(),
         Some(n) => Some(RustVersion::new(1, n.parse()?)),
         None => None,
     })

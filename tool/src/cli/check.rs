@@ -87,7 +87,7 @@ fn validate(cx: &Ctxt<'_>, error: &Validation, fix: bool) -> Result<()> {
                         }
                     }
 
-                    let Some(string) = cx.config.default_workflow(crate_params)? else {
+                    let Some(string) = cx.config.default_workflow(cx, crate_params)? else {
                         println!("  Missing default workflow!");
                         return Ok(());
                     };

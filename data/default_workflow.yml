@@ -1,4 +1,4 @@
-name: {{config.job_name}}
+name: {{job_name}}
 
 on:
   pull_request: {}
@@ -12,12 +12,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["{{rust_versions.rustc_version}}", stable]
+        rust: ["{{rust_versions.edition_2021}}", stable]
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@master
       with:
-        toolchain: ${{matrix.rust}}
+        toolchain: {{{{raw}}}}${{matrix.rust}}{{{{/raw}}}}
     - run: cargo test --workspace --all-targets
     - run: cargo test --workspace --doc
       if: matrix.rust == 'stable'
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@{{rust_versions.rustc_version}}
+    - uses: dtolnay/rust-toolchain@{{rust_versions.rustc}}
       with:
         components: clippy
     - run: cargo clippy --workspace --all-features --all-targets -- -D warnings
