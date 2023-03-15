@@ -10,7 +10,6 @@
 {{literal this.html}}
 {{/each}}
 <br>
-
 <br>
 
 {{crate.description}}
