@@ -1,25 +1,21 @@
 use core::fmt;
 use std::collections::HashSet;
-use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use relative_path::{RelativePath, RelativePathBuf};
 use serde_yaml::Value;
 
-use crate::actions::Actions;
+use crate::ctxt::Ctxt;
 use crate::manifest::Manifest;
 use crate::model::Module;
 use crate::validation::Validation;
 use crate::workspace::{Package, Workspace};
 
-pub(crate) struct Ci<'a, 'validation> {
-    root: &'a Path,
+pub(crate) struct Ci<'a> {
     path: &'a RelativePath,
-    name: &'a str,
-    actions: &'a Actions<'a>,
     manifest: &'a Manifest,
     workspace: bool,
-    validation: &'validation mut Vec<Validation>,
+    validation: &'a mut Vec<Validation>,
 }
 
 pub(crate) enum ActionExpected {
@@ -65,7 +61,7 @@ enum CargoFeatures {
 
 /// Build ci validation.
 pub(crate) fn build(
-    cx: &crate::ctxt::Ctxt<'_>,
+    cx: &Ctxt<'_>,
     primary_crate: &Package,
     module: &Module<'_>,
     workspace: &Workspace,
@@ -74,25 +70,27 @@ pub(crate) fn build(
     let path = workspace.path().join(".github").join("workflows");
 
     let mut ci = Ci {
-        root: cx.root,
         path: &path,
-        name: cx.config.job_name(),
-        actions: &cx.actions,
         manifest: &primary_crate.manifest,
         workspace: !workspace.is_single_crate(),
         validation,
     };
 
-    validate(&mut ci, primary_crate, module)
+    validate(cx, &mut ci, primary_crate, module)
 }
 
 /// Validate the current model.
-fn validate<'b>(cx: &mut Ci<'_, '_>, package: &Package, module: &Module<'_>) -> Result<()> {
-    let deprecated_yml = cx.path.join("rust.yml");
-    let expected_path = cx.path.join("ci.yml");
+fn validate<'b>(
+    cx: &Ctxt<'_>,
+    ci: &mut Ci<'_>,
+    package: &Package,
+    module: &Module<'_>,
+) -> Result<()> {
+    let deprecated_yml = ci.path.join("rust.yml");
+    let expected_path = ci.path.join("ci.yml");
 
     let candidates =
-        candidates(cx).with_context(|| anyhow!("list candidates: {path}", path = cx.path))?;
+        candidates(cx, ci).with_context(|| anyhow!("list candidates: {path}", path = ci.path))?;
 
     let path = if !expected_path.to_path(cx.root).is_file() {
         let path = match &candidates[..] {
@@ -100,10 +98,10 @@ fn validate<'b>(cx: &mut Ci<'_, '_>, package: &Package, module: &Module<'_>) -> 
             _ => None,
         };
 
-        cx.validation.push(Validation::MissingWorkflow {
+        ci.validation.push(Validation::MissingWorkflow {
             path: expected_path,
             candidates: candidates.clone(),
-            crate_params: package.crate_params(module)?.into_owned(),
+            crate_params: package.crate_params(cx, module)?.into_owned(),
         });
 
         match path {
@@ -115,7 +113,7 @@ fn validate<'b>(cx: &mut Ci<'_, '_>, package: &Package, module: &Module<'_>) -> 
     };
 
     if deprecated_yml.to_path(cx.root).is_file() && candidates.len() > 1 {
-        cx.validation.push(Validation::DeprecatedWorkflow {
+        ci.validation.push(Validation::DeprecatedWorkflow {
             path: deprecated_yml,
         });
     }
@@ -129,21 +127,21 @@ fn validate<'b>(cx: &mut Ci<'_, '_>, package: &Package, module: &Module<'_>) -> 
         .and_then(|name| name.as_str())
         .ok_or_else(|| anyhow!("{path}: missing .name"))?;
 
-    if name != cx.name {
-        cx.validation.push(Validation::WrongWorkflowName {
+    if name != cx.config.job_name() {
+        ci.validation.push(Validation::WrongWorkflowName {
             path: path.clone(),
             actual: name.to_owned(),
-            expected: cx.name.to_owned(),
+            expected: cx.config.job_name().to_owned(),
         });
     }
 
-    validate_jobs(cx, &path, &value)?;
+    validate_jobs(cx, ci, &path, &value)?;
     Ok(())
 }
 
 /// Get candidates.
-fn candidates(ci: &Ci<'_, '_>) -> std::io::Result<Box<[RelativePathBuf]>> {
-    let dir = match std::fs::read_dir(ci.path.to_path(ci.root)) {
+fn candidates(cx: &Ctxt<'_>, ci: &Ci<'_>) -> std::io::Result<Box<[RelativePathBuf]>> {
+    let dir = match std::fs::read_dir(ci.path.to_path(cx.root)) {
         Ok(dir) => dir,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Box::from([])),
         Err(e) => return Err(e.into()),
@@ -164,12 +162,13 @@ fn candidates(ci: &Ci<'_, '_>) -> std::io::Result<Box<[RelativePathBuf]>> {
 
 /// Validate that jobs are modern.
 fn validate_jobs(
-    cx: &mut Ci<'_, '_>,
+    cx: &Ctxt<'_>,
+    ci: &mut Ci<'_>,
     path: &RelativePath,
     value: &serde_yaml::Value,
 ) -> Result<()> {
     if let Some(value) = value.get("on") {
-        validate_on(cx, value, path);
+        validate_on(ci, value, path);
     }
 
     if let Some(jobs) = value.get("jobs").and_then(|v| v.as_mapping()) {
@@ -185,7 +184,7 @@ fn validate_jobs(
                     if let Some((name, version)) = uses.split_once('@') {
                         if let Some(expected) = cx.actions.get_latest(name) {
                             if expected != version {
-                                cx.validation.push(Validation::OutdatedAction {
+                                ci.validation.push(Validation::OutdatedAction {
                                     path: path.to_owned(),
                                     name: name.into(),
                                     actual: version.into(),
@@ -195,7 +194,7 @@ fn validate_jobs(
                         }
 
                         if let Some(reason) = cx.actions.get_deny(name) {
-                            cx.validation.push(Validation::DeniedAction {
+                            ci.validation.push(Validation::DeniedAction {
                                 path: path.to_owned(),
                                 name: name.into(),
                                 reason: reason.into(),
@@ -204,7 +203,7 @@ fn validate_jobs(
 
                         if let Some(check) = cx.actions.get_check(name) {
                             if let Err(reason) = check.check(action) {
-                                cx.validation.push(Validation::CustomActionsCheck {
+                                ci.validation.push(Validation::CustomActionsCheck {
                                     path: path.to_owned(),
                                     name: name.into(),
                                     reason: reason.into(),
@@ -215,8 +214,8 @@ fn validate_jobs(
                 }
             }
 
-            if !cx.workspace {
-                verify_single_project_build(cx, path, job);
+            if !ci.workspace {
+                verify_single_project_build(ci, path, job);
             }
         }
     }
@@ -224,9 +223,9 @@ fn validate_jobs(
     Ok(())
 }
 
-fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
+fn validate_on(ci: &mut Ci<'_>, value: &Value, path: &RelativePath) {
     let Value::Mapping(m) = value else {
-        cx.validation.push(Validation::ActionMissingKey {
+        ci.validation.push(Validation::ActionMissingKey {
             path: path.to_owned(),
             key: Box::from("on"),
             expected: ActionExpected::Mapping,
@@ -239,14 +238,14 @@ fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
     match m.get("pull_request") {
         Some(Value::Mapping(m)) => {
             if !m.is_empty() {
-                cx.validation.push(Validation::ActionExpectedEmptyMapping {
+                ci.validation.push(Validation::ActionExpectedEmptyMapping {
                     path: path.to_owned(),
                     key: Box::from("on.pull_request"),
                 });
             }
         }
         value => {
-            cx.validation.push(Validation::ActionMissingKey {
+            ci.validation.push(Validation::ActionMissingKey {
                 path: path.to_owned(),
                 key: Box::from("on.pull_request"),
                 expected: ActionExpected::Mapping,
@@ -259,7 +258,7 @@ fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
         Some(Value::Mapping(m)) => match m.get("branches") {
             Some(Value::Sequence(s)) => {
                 if !s.iter().flat_map(|v| v.as_str()).any(|b| b == "main") {
-                    cx.validation.push(Validation::ActionOnMissingBranch {
+                    ci.validation.push(Validation::ActionOnMissingBranch {
                         path: path.to_owned(),
                         key: Box::from("on.push.branches"),
                         branch: Box::from("main"),
@@ -267,7 +266,7 @@ fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
                 }
             }
             value => {
-                cx.validation.push(Validation::ActionMissingKey {
+                ci.validation.push(Validation::ActionMissingKey {
                     path: path.to_owned(),
                     key: Box::from("on.push.branches"),
                     expected: ActionExpected::Sequence,
@@ -276,7 +275,7 @@ fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
             }
         },
         value => {
-            cx.validation.push(Validation::ActionMissingKey {
+            ci.validation.push(Validation::ActionMissingKey {
                 path: path.to_owned(),
                 key: Box::from("on.push"),
                 expected: ActionExpected::Mapping,
@@ -286,9 +285,9 @@ fn validate_on(cx: &mut Ci<'_, '_>, value: &Value, path: &RelativePath) {
     }
 }
 
-fn verify_single_project_build(cx: &mut Ci<'_, '_>, path: &RelativePath, job: &serde_yaml::Value) {
+fn verify_single_project_build(ci: &mut Ci<'_>, path: &RelativePath, job: &serde_yaml::Value) {
     let mut cargo_combos = Vec::new();
-    let features = cx.manifest.features();
+    let features = ci.manifest.features();
 
     for step in job
         .get("steps")
@@ -303,7 +302,7 @@ fn verify_single_project_build(cx: &mut Ci<'_, '_>, path: &RelativePath, job: &s
                 match identity {
                     RunIdentity::Cargo(cargo) => {
                         for feature in &cargo.missing_features {
-                            cx.validation.push(Validation::MissingFeature {
+                            ci.validation.push(Validation::MissingFeature {
                                 path: path.to_owned(),
                                 feature: feature.clone(),
                             });
@@ -324,19 +323,19 @@ fn verify_single_project_build(cx: &mut Ci<'_, '_>, path: &RelativePath, job: &s
         if features.is_empty() {
             for build in &cargo_combos {
                 if !matches!(build.features, CargoFeatures::Default) {
-                    cx.validation.push(Validation::NoFeatures {
+                    ci.validation.push(Validation::NoFeatures {
                         path: path.to_owned(),
                     });
                 }
             }
         } else {
-            ensure_feature_combo(cx, path, &cargo_combos);
+            ensure_feature_combo(ci, path, &cargo_combos);
         }
     }
 }
 
 /// Ensure that feature combination is valid.
-fn ensure_feature_combo(cx: &mut Ci<'_, '_>, path: &RelativePath, cargos: &[Cargo]) -> bool {
+fn ensure_feature_combo(ci: &mut Ci<'_>, path: &RelativePath, cargos: &[Cargo]) -> bool {
     let mut all_features = false;
     let mut empty_features = false;
 
@@ -355,13 +354,13 @@ fn ensure_feature_combo(cx: &mut Ci<'_, '_>, path: &RelativePath, cargos: &[Carg
     }
 
     if !empty_features {
-        cx.validation.push(Validation::MissingEmptyFeatures {
+        ci.validation.push(Validation::MissingEmptyFeatures {
             path: path.to_owned(),
         });
     }
 
     if !all_features {
-        cx.validation.push(Validation::MissingAllFeatures {
+        ci.validation.push(Validation::MissingAllFeatures {
             path: path.to_owned(),
         });
     }

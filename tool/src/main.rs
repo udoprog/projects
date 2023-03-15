@@ -108,6 +108,7 @@ async fn entry() -> Result<()> {
         actions: &actions,
         modules,
         github_auth,
+        rustc_version: ctxt::rustc_version(),
     };
 
     match opts.action.unwrap_or_default() {

@@ -129,7 +129,7 @@ pub(crate) fn build(
 
     let params = cx
         .config
-        .per_crate_render(primary_crate.crate_params(module)?);
+        .per_crate_render(primary_crate.crate_params(cx, module)?);
 
     let documentation = match &cx.config.documentation {
         Some(documentation) => Some(documentation.render(&params)?),
@@ -172,7 +172,7 @@ pub(crate) fn build(
         for package in workspace.packages() {
             if package.manifest_dir != workspace.path() {
                 if package.manifest.is_publish()? {
-                    let crate_params = package.crate_params(&module)?;
+                    let crate_params = package.crate_params(cx, &module)?;
 
                     readme::build(
                         cx,

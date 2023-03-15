@@ -6,21 +6,15 @@ use std::process::{Command, Stdio};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
-use crate::ctxt::Ctxt;
+use crate::ctxt::{Ctxt, RustVersion, RustVersions};
 use crate::workspace::{self, Workspace};
 
-/// First version to support 2018 edition.
-const EDITION_2018: u64 = 31;
-/// First version to support 2021 edition.
-const EDITION_2021: u64 = 56;
 /// Oldest version where rust-version was introduced.
-const RUST_VERSION_SUPPORTED: u64 = 56;
-/// Oldest version to support workspaces.
-const WORKSPACE: u64 = 12;
+const RUST_VERSION_SUPPORTED: RustVersion = RustVersion::new(1, 56);
 /// Oldest version to test by default.
-const EARLIEST: u64 = RUST_VERSION_SUPPORTED;
+const EARLIEST: RustVersion = RUST_VERSION_SUPPORTED;
 /// Final fallback version to use if *nothing* else can be figured out.
-const LATEST: u64 = 100;
+const LATEST: RustVersion = RustVersion::new(1, 68);
 /// Default command to build.
 const DEFAULT_COMMAND: [&str; 3] = ["cargo", "build", "--all-targets"];
 
@@ -84,66 +78,32 @@ pub(crate) fn entry(cx: &Ctxt<'_>, opts: &Opts) -> Result<()> {
     Ok(())
 }
 
-/// Minor version from rustc.
-fn rustc_version() -> Option<u64> {
-    let output = Command::new("rustc")
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-
-    let output = String::from_utf8(output.stdout).ok()?;
-    tracing::info!("rustc: {output}");
-    let version = output.split(' ').nth(1)?;
-    let version = version.split('.').nth(1)?;
-    let version = version.parse().ok()?;
-    Some(version)
-}
-
 fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
     let primary = workspace
         .primary_crate()?
         .context("missing primary crate")?;
 
     let current_dir = workspace.path().to_path(cx.root);
+    let rust_versions = primary.rust_versions(cx)?;
 
-    let rustc_minor = rustc_version();
-
-    let manifest_minor = match primary.manifest.rust_version()? {
-        Some(rust_version) => {
-            let mut it = rust_version.split('.');
-            let major: u64 = it.next().context("missing major")?.parse()?;
-            let minor: u64 = it.next().context("missing minor")?.parse()?;
-
-            if major != 1 {
-                bail!("only major version 1 supported");
-            }
-
-            rustc_minor.into_iter().chain([minor]).min()
-        }
-        None => None,
-    };
-
-    let opts_earliest = parse_minor_version(opts.earliest.as_deref(), rustc_minor, manifest_minor)?;
-    let opts_latest = parse_minor_version(opts.latest.as_deref(), rustc_minor, manifest_minor)?;
+    let opts_earliest = parse_minor_version(opts.earliest.as_deref(), &rust_versions)?;
+    let opts_latest = parse_minor_version(opts.latest.as_deref(), &rust_versions)?;
 
     let earliest = opts_earliest.unwrap_or(EARLIEST);
     let latest = opts_latest
-        .or(rustc_minor)
-        .or(manifest_minor)
+        .or(rust_versions.rustc)
+        .or(rust_versions.rust_version)
         .unwrap_or(LATEST)
         .max(earliest);
 
     let cargo_lock = primary.manifest_dir.join("Cargo.lock").to_path(cx.root);
     let cargo_lock_original = cargo_lock.with_extension("lock.original");
 
-    tracing::info!("Testing Rust 1.{earliest}-1.{latest}");
+    tracing::info!("Testing Rust {earliest}-{latest}");
     let mut candidates = Bisect::new(earliest, latest);
 
     while let Some(current) = candidates.current() {
-        let version = format!("1.{current}");
+        let version = format!("{current}");
 
         let output = Command::new("rustup")
             .args(["run", &version, "rustc", "--version"])
@@ -227,19 +187,18 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
         }
     }
 
-    if let Some(minor) = candidates.get() {
-        let version = format!("1.{minor}");
+    if let Some(version) = candidates.get() {
         tracing::info!("Supported msrv: Rust {version}");
 
         if opts.save {
-            if minor >= RUST_VERSION_SUPPORTED {
+            if version >= RUST_VERSION_SUPPORTED {
                 for p in workspace.packages_mut() {
                     if p.manifest.is_publish()? {
                         tracing::info!(
                             "Saving {} with rust-version = \"{version}\"",
                             p.manifest_path
                         );
-                        p.manifest.set_rust_version(&version)?;
+                        p.manifest.set_rust_version(&version.to_string())?;
                         p.manifest.sort_package_keys()?;
                         p.manifest.save_to(p.manifest_path.to_path(cx.root))?;
                     }
@@ -263,16 +222,15 @@ fn build(cx: &Ctxt, workspace: &mut Workspace, opts: &Opts) -> Result<()> {
 
 fn parse_minor_version(
     string: Option<&str>,
-    rustc_minor: Option<u64>,
-    manifest_minor: Option<u64>,
-) -> Result<Option<u64>> {
+    rust_versions: &RustVersions,
+) -> Result<Option<RustVersion>> {
     Ok(match string {
-        Some("rustc") => rustc_minor,
-        Some("2018") => Some(EDITION_2018),
-        Some("2021") => Some(EDITION_2021),
-        Some("workspace") => Some(WORKSPACE),
-        Some("rust-version") => manifest_minor,
-        Some(n) => Some(n.parse()?),
+        Some("rustc") => rust_versions.rustc,
+        Some("2018") => Some(rust_versions.edition_2018),
+        Some("2021") => Some(rust_versions.edition_2021),
+        Some("workspace") => Some(rust_versions.workspace),
+        Some("rust-version") => rust_versions.rust_version,
+        Some(n) => Some(RustVersion::new(1, n.parse()?)),
         None => None,
     })
 }
@@ -296,28 +254,28 @@ struct Bisect {
 }
 
 impl Bisect {
-    fn new(earliest: u64, latest: u64) -> Self {
+    fn new(earliest: RustVersion, latest: RustVersion) -> Self {
         Self {
             versions: HashMap::new(),
-            earliest,
-            current: midpoint(earliest, latest),
-            latest,
+            earliest: earliest.minor,
+            current: midpoint(earliest.minor, latest.minor),
+            latest: latest.minor,
         }
     }
 
     /// Get the next version that needs to be tested.
-    fn current(&self) -> Option<u64> {
+    fn current(&self) -> Option<RustVersion> {
         if self.versions.contains_key(&self.current) {
             return None;
         }
 
-        Some(self.current)
+        Some(RustVersion::new(1, self.current))
     }
 
     /// Return a successfully tested version.
-    fn get(&self) -> Option<u64> {
+    fn get(&self) -> Option<RustVersion> {
         if *self.versions.get(&self.current)? {
-            return Some(self.current);
+            return Some(RustVersion::new(1, self.current));
         }
 
         None
