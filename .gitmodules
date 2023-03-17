@@ -97,3 +97,6 @@
 [submodule "repos/OxidizeBot"]
 	path = repos/OxidizeBot
 	url = https://github.com/udoprog/OxidizeBot
+[submodule "repos/nondestructive"]
+	path = repos/nondestructive
+	url = https://github.com/udoprog/nondestructive
