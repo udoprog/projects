@@ -13,9 +13,9 @@
 <br>
 
 {{crate.description}}
-{{#if rest}}
+{{#if body}}
 
 <br>
 
-{{literal rest}}
+{{literal body}}
 {{/if}}

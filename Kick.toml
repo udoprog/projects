@@ -3,6 +3,7 @@ license = "MIT/Apache-2.0"
 authors = ["John-John Tedro <udoprog@tedro.se>"]
 documentation = "{{docs_rs}}/{{crate.name}}"
 workflow = "data/workflow.yml"
+readme_badges = ["+build"]
 
 [variables]
 github = "https://github.com"
@@ -32,10 +33,12 @@ href = "{{docs_rs}}/{{crate.name}}"
 height = "{{badge_height}}"
 
 [[badges]]
+id = "build"
 alt = "build status"
 src = "https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.yml?branch=main&style=for-the-badge"
 href = "{{github}}/{{crate.repo}}/actions?query=branch%3Amain"
 height = "{{badge_height}}"
+enabled = false
 
 [[badges]]
 id = "discord"
@@ -55,11 +58,12 @@ disabled = ["ci"]
 crate = "oxidize"
 lib = "data/OxidizeBot.lib.md"
 readme = "data/OxidizeBot.readme.md"
-disabled_badges = ["docs.rs", "crates.io"]
-enabled_badges = ["discord"]
+lib_badges = ["-docs.rs", "-crates.io", "+discord"]
+readme_badges = ["-docs.rs", "-crates.io", "+discord"]
 variables = { badge_height = 24 }
 
 [repos."repos/rune"]
 lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
-enabled_badges = ["discord"]
+lib_badges = ["+discord"]
+readme_badges = ["+discord"]

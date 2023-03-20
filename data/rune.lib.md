@@ -16,10 +16,10 @@ Minimum support: Rust <b>{{crate.rust_version}}+</b>.
 <br>
 
 {{crate.description}}
-{{#if rest}}
+{{#if body}}
 
 <br>
 
 {{literal header_marker~}}
-{{literal rest}}
+{{literal body}}
 {{/if}}

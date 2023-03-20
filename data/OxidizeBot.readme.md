@@ -13,10 +13,10 @@
 
 {{crate.description}}
 
-{{#if rest}}
+{{#if body}}
 
 <br>
 
 {{literal header_marker~}}
-{{literal rest}}
+{{literal body}}
 {{/if}}
