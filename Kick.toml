@@ -67,3 +67,7 @@ lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
 lib_badges = ["+discord"]
 readme_badges = ["+discord"]
+
+[[repos."repos/rune".version]]
+paths = ["src/**/*.rs"]
+pattern = "//!.+(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+).+"
