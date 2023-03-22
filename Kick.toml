@@ -12,6 +12,10 @@ docs_rs_image = "data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwO
 colors = { github = "8da0cb", crates_io = "fc8d62", docs_rs = "66c2a5" }
 badge_height = 20
 
+[[version]]
+paths = ["src/**/*.rs"]
+pattern = "//!\\s+[a-z-]+\\s*=\\s*.+(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+).+"
+
 [[badges]]
 alt = "github"
 src = "https://img.shields.io/badge/github-{{dash_escape crate.repo}}-{{colors.github}}?style=for-the-badge&logo=github"
@@ -67,7 +71,3 @@ lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
 lib_badges = ["+discord"]
 readme_badges = ["+discord"]
-
-[[repos."repos/rune".version]]
-paths = ["src/**/*.rs"]
-pattern = "//!.+(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+).+"
