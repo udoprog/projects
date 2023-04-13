@@ -71,3 +71,13 @@ lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
 lib_badges = ["+discord"]
 readme_badges = ["+discord"]
+
+[repos."repos/OxidizeBot".upgrade]
+exclude = [
+    # web component has multiple dependencies on sled
+    "sled",
+    # diesel maintainers refuse to re-export the needed feature to avoid
+    # depending on this directly.
+    # https://github.com/diesel-rs/diesel/issues/3587
+    "libsqlite3-sys"
+]
