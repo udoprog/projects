@@ -52,13 +52,13 @@ href = "https://discord.gg/v5AeNkT"
 height = "{{badge_height}}"
 enabled = false
 
-[repos."repos/aiocp"]
+[repo."repos/aiocp"]
 crate = "iocp"
 
-[repos."repos/quickcfg"]
+[repo."repos/quickcfg"]
 disabled = ["ci"]
 
-[repos."repos/OxidizeBot"]
+[repo."repos/OxidizeBot"]
 crate = "oxidize"
 lib = "data/OxidizeBot.lib.md"
 readme = "data/OxidizeBot.readme.md"
@@ -66,13 +66,13 @@ lib_badges = ["-docs.rs", "-crates.io", "+discord"]
 readme_badges = ["-docs.rs", "-crates.io", "+discord"]
 variables = { badge_height = 24 }
 
-[repos."repos/rune"]
+[repo."repos/rune"]
 lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
 lib_badges = ["+discord"]
 readme_badges = ["+discord"]
 
-[repos."repos/OxidizeBot".upgrade]
+[repo."repos/OxidizeBot".upgrade]
 exclude = [
     # web component has multiple dependencies on sled
     "sled",
