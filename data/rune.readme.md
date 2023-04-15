@@ -4,7 +4,7 @@
 &mdash;
 <a href="https://rune-rs.github.io/book/"><b>Read the book 📖</b></a>
 
-# {{crate.name}}
+# {{package.name}}
 
 {{#each badges}}
 {{literal this.html}}
@@ -12,7 +12,7 @@
 <br>
 <br>
 
-{{crate.description}}
+{{package.description}}
 {{#if body}}
 
 <br>

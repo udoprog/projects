@@ -1,7 +1,7 @@
 job_name = "CI"
 license = "MIT/Apache-2.0"
 authors = ["John-John Tedro <udoprog@tedro.se>"]
-documentation = "{{docs_rs}}/{{crate.name}}"
+documentation = "{{docs_rs}}/{{package.name}}"
 workflow = "data/workflow.yml"
 readme_badges = ["+build"]
 
@@ -18,29 +18,29 @@ pattern = "//!\\s+[a-z-]+\\s*=\\s*.+(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+).+"
 
 [[badges]]
 alt = "github"
-src = "https://img.shields.io/badge/github-{{dash_escape crate.repo}}-{{colors.github}}?style=for-the-badge&logo=github"
-href = "{{github}}/{{crate.repo}}"
+src = "https://img.shields.io/badge/github-{{dash_escape package.repo}}-{{colors.github}}?style=for-the-badge&logo=github"
+href = "{{github}}/{{package.repo}}"
 height = "{{badge_height}}"
 
 [[badges]]
 id = "crates.io"
 alt = "crates.io"
-src = "https://img.shields.io/crates/v/{{crate.name}}.svg?style=for-the-badge&color={{colors.crates_io}}&logo=rust"
-href = "https://crates.io/crates/{{crate.name}}"
+src = "https://img.shields.io/crates/v/{{package.name}}.svg?style=for-the-badge&color={{colors.crates_io}}&logo=rust"
+href = "https://crates.io/crates/{{package.name}}"
 height = "{{badge_height}}"
 
 [[badges]]
 id = "docs.rs"
 alt = "docs.rs"
-src = "https://img.shields.io/badge/docs.rs-{{dash_escape crate.name}}-{{colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}"
-href = "{{docs_rs}}/{{crate.name}}"
+src = "https://img.shields.io/badge/docs.rs-{{dash_escape package.name}}-{{colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}"
+href = "{{docs_rs}}/{{package.name}}"
 height = "{{badge_height}}"
 
 [[badges]]
 id = "build"
 alt = "build status"
-src = "https://img.shields.io/github/actions/workflow/status/{{crate.repo}}/ci.yml?branch=main&style=for-the-badge"
-href = "{{github}}/{{crate.repo}}/actions?query=branch%3Amain"
+src = "https://img.shields.io/github/actions/workflow/status/{{package.repo}}/ci.yml?branch=main&style=for-the-badge"
+href = "{{github}}/{{package.repo}}/actions?query=branch%3Amain"
 height = "{{badge_height}}"
 enabled = false
 
@@ -53,13 +53,13 @@ height = "{{badge_height}}"
 enabled = false
 
 [repo."repos/aiocp"]
-crate = "iocp"
+name = "iocp"
 
 [repo."repos/quickcfg"]
 disabled = ["ci"]
 
 [repo."repos/OxidizeBot"]
-crate = "oxidize"
+name = "oxidize"
 lib = "data/OxidizeBot.lib.md"
 readme = "data/OxidizeBot.readme.md"
 lib_badges = ["-docs.rs", "-crates.io", "+discord"]

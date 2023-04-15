@@ -11,7 +11,7 @@
 <br>
 <br>
 
-{{crate.description}}
+{{package.description}}
 
 {{#if body}}
 

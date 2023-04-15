@@ -6,12 +6,12 @@
 &ndash;
 <a href="https://setbac.tv/help" rel="nofollow">Command Help ❓</a>
 
-# {{crate.name}}
+# {{package.name}}
 {{#each badges}}
 {{literal this.markdown}}
 {{/each}}
 
-{{crate.description}}
+{{package.description}}
 
 {{#if body}}
 

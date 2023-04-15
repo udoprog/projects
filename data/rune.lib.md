@@ -4,8 +4,8 @@
 {{literal this.html}}
 {{/each}}
 <br>
-{{#if crate.rust_version}}
-Minimum support: Rust <b>{{crate.rust_version}}+</b>.
+{{#if package.rust_version}}
+Minimum support: Rust <b>{{package.rust_version}}+</b>.
 <br>
 {{/if}}
 <br>
@@ -15,7 +15,7 @@ Minimum support: Rust <b>{{crate.rust_version}}+</b>.
 <br>
 <br>
 
-{{crate.description}}
+{{package.description}}
 {{#if body}}
 
 <br>
