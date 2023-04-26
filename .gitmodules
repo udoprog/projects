@@ -100,3 +100,6 @@
 [submodule "repos/nondestructive"]
 	path = repos/nondestructive
 	url = https://github.com/udoprog/nondestructive
+[submodule "repos/jpv"]
+	path = repos/jpv
+	url = https://github.com/udoprog/jpv
