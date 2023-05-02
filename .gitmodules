@@ -103,3 +103,6 @@
 [submodule "repos/jpv"]
 	path = repos/jpv
 	url = https://github.com/udoprog/jpv
+[submodule "repos/borrowme"]
+	path = repos/borrowme
+	url = https://github.com/udoprog/borrowme
