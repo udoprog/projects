@@ -1,5 +1,5 @@
 job_name = "CI"
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 authors = ["John-John Tedro <udoprog@tedro.se>"]
 documentation = "{{docs_rs}}/{{package.name}}"
 workflow = "data/workflow.yml"
