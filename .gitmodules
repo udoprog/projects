@@ -106,3 +106,9 @@
 [submodule "repos/borrowme"]
 	path = repos/borrowme
 	url = https://github.com/udoprog/borrowme
+[submodule "repos/tokio-dbus"]
+	path = repos/tokio-dbus
+	url = https://github.com/udoprog/tokio-dbus
+[submodule "repos/winctx"]
+	path = repos/winctx
+	url = https://github.com/udoprog/winctx
