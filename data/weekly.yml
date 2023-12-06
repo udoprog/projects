@@ -2,7 +2,7 @@ name: {{weekly_name}}
 
 on:
   schedule:
-    - cron: "0 0 * * 1"
+    - cron: "0 {{random.hour}} * * {{random.day}}"
 
 jobs:
   weekly:
