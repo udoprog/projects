@@ -1,4 +1,4 @@
-name: {{job_name}}
+name: {{ci_name}}
 
 on:
   pull_request: {}

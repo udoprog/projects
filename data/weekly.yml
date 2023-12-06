@@ -1,0 +1,19 @@
+name: {{weekly_name}}
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["{{package.rust_version}}", stable]
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: {{{{raw}}}}${{matrix.rust}}{{{{/raw}}}}
+    - run: cargo build --workspace --all-targets
