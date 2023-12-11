@@ -62,9 +62,6 @@ enabled = false
 [repo."repos/aiocp"]
 name = "iocp"
 
-[repo."repos/quickcfg"]
-disabled = ["ci"]
-
 [repo."repos/OxidizeBot"]
 name = "oxidize"
 lib = "data/OxidizeBot.lib.md"
