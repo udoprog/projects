@@ -17,7 +17,6 @@ name = "Weekly"
 [workflows.ci]
 template = "data/ci.yml"
 name = "CI"
-features = ["push"]
 
 [[version]]
 paths = ["src/**/*.rs"]
