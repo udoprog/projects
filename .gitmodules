@@ -1,114 +1,152 @@
 [submodule "fixed-map"]
 	path = repos/fixed-map
 	url = https://github.com/udoprog/fixed-map
+	branch = main
 [submodule "genco"]
 	path = repos/genco
 	url = https://github.com/udoprog/genco
+	branch = main
 [submodule "relative-path"]
 	path = repos/relative-path
 	url = https://github.com/udoprog/relative-path
+	branch = main
 [submodule "leaky-bucket"]
 	path = repos/leaky-bucket
 	url = https://github.com/udoprog/leaky-bucket
+	branch = main
 [submodule "serde-hashkey"]
 	path = repos/serde-hashkey
 	url = https://github.com/udoprog/serde-hashkey
+	branch = main
 [submodule "musli"]
 	path = repos/musli
 	url = https://github.com/udoprog/musli
+	branch = main
 [submodule "unsync"]
 	path = repos/unsync
 	url = https://github.com/udoprog/unsync
+	branch = main
 [submodule "unicycle"]
 	path = repos/unicycle
 	url = https://github.com/udoprog/unicycle
+	branch = main
 [submodule "checkers"]
 	path = repos/checkers
 	url = https://github.com/udoprog/checkers
+	branch = main
 [submodule "async-oauth2"]
 	path = repos/async-oauth2
 	url = https://github.com/udoprog/async-oauth2
+	branch = main
 [submodule "argwerk"]
 	path = repos/argwerk
 	url = https://github.com/udoprog/argwerk
+	branch = main
 [submodule "selectme"]
 	path = repos/selectme
 	url = https://github.com/udoprog/selectme
+	branch = main
 [submodule "syntree"]
 	path = repos/syntree
 	url = https://github.com/udoprog/syntree
+	branch = main
 [submodule "anything"]
 	path = repos/anything
 	url = https://github.com/udoprog/anything
+	branch = main
 [submodule "bittle"]
 	path = repos/bittle
 	url = https://github.com/udoprog/bittle
+	branch = main
 [submodule "quickcfg"]
 	path = repos/quickcfg
 	url = https://github.com/udoprog/quickcfg
+	branch = main
 [submodule "async-fuse"]
 	path = repos/async-fuse
 	url = https://github.com/udoprog/async-fuse
+	branch = main
 [submodule "futures-cache"]
 	path = repos/futures-cache
 	url = https://github.com/udoprog/futures-cache
+	branch = main
 [submodule "repos/async-injector"]
 	path = repos/async-injector
 	url = https://github.com/udoprog/async-injector
+	branch = main
 [submodule "repos/uniset"]
 	path = repos/uniset
 	url = https://github.com/udoprog/uniset
+	branch = main
 [submodule "repos/audio"]
 	path = repos/audio
 	url = https://github.com/udoprog/audio
+	branch = main
 [submodule "repos/markerpen"]
 	path = repos/markerpen
 	url = https://github.com/udoprog/markerpen
+	branch = main
 [submodule "repos/hodoku"]
 	path = repos/hodoku
 	url = https://github.com/udoprog/hodoku
+	branch = main
 [submodule "repos/aiocp"]
 	path = repos/aiocp
 	url = https://github.com/udoprog/aiocp
+	branch = main
 [submodule "repos/ptscan"]
 	path = repos/ptscan
 	url = https://github.com/udoprog/ptscan
+	branch = main
 [submodule "repos/fixed-vec-deque"]
 	path = repos/fixed-vec-deque
 	url = https://github.com/udoprog/fixed-vec-deque
+	branch = main
 [submodule "repos/sieve-rs"]
 	path = repos/sieve-rs
 	url = https://github.com/udoprog/sieve-rs
+	branch = main
 [submodule "repos/ontv"]
 	path = repos/ontv
 	url = https://github.com/udoprog/ontv
+	branch = main
 [submodule "repos/rune"]
 	path = repos/rune
 	url = https://github.com/rune-rs/rune
+	branch = main
 [submodule "repos/sqlite-ll"]
 	path = repos/sqlite-ll
 	url = https://github.com/udoprog/sqlite-ll
+	branch = main
 [submodule "repos/gorilla"]
 	path = repos/gorilla
 	url = https://github.com/udoprog/gorilla
+	branch = main
 [submodule "repos/kick"]
 	path = repos/kick
 	url = https://github.com/udoprog/kick
+	branch = main
 [submodule "repos/OxidizeBot"]
 	path = repos/OxidizeBot
 	url = https://github.com/udoprog/OxidizeBot
+	branch = main
 [submodule "repos/nondestructive"]
 	path = repos/nondestructive
 	url = https://github.com/udoprog/nondestructive
+	branch = main
 [submodule "repos/jpv"]
 	path = repos/jpv
 	url = https://github.com/udoprog/jpv
+	branch = main
 [submodule "repos/borrowme"]
 	path = repos/borrowme
 	url = https://github.com/udoprog/borrowme
+	branch = main
 [submodule "repos/tokio-dbus"]
 	path = repos/tokio-dbus
 	url = https://github.com/udoprog/tokio-dbus
+	branch = main
 [submodule "repos/winctx"]
 	path = repos/winctx
 	url = https://github.com/udoprog/winctx
+	branch = main
