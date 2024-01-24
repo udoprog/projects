@@ -150,3 +150,6 @@
 	path = repos/winctx
 	url = https://github.com/udoprog/winctx
 	branch = main
+[submodule "repos/xmlparser"]
+	path = repos/xmlparser
+	url = https://github.com/RazrFalcon/xmlparser.git
