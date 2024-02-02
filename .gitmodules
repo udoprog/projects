@@ -153,3 +153,6 @@
 [submodule "repos/xmlparser"]
 	path = repos/xmlparser
 	url = https://github.com/RazrFalcon/xmlparser.git
+[submodule "repos/unlock"]
+	path = repos/unlock
+	url = https://github.com/udoprog/unlock
