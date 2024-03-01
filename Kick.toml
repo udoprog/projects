@@ -63,7 +63,6 @@ enabled = false
 name = "iocp"
 
 [repo."repos/OxidizeBot"]
-name = "oxidize"
 lib = "data/OxidizeBot.lib.md"
 readme = "data/OxidizeBot.readme.md"
 lib_badges = ["-docs.rs", "-crates.io", "+discord"]
