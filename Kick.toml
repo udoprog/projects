@@ -30,6 +30,7 @@ features = [
 [workflows.ci]
 template = "data/ci.yml"
 name = "CI"
+branch = "main"
 
 [[version]]
 paths = ["src/**/*.rs"]
@@ -99,3 +100,4 @@ exclude = [
 
 [repo."repos/xmlparser"]
 variables = { branch = "master" }
+workflows.ci = { branch = "master" }
