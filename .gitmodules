@@ -152,7 +152,7 @@
 	branch = main
 [submodule "repos/xmlparser"]
 	path = repos/xmlparser
-	url = https://github.com/RazrFalcon/xmlparser.git
+	url = https://github.com/RazrFalcon/xmlparser
 [submodule "repos/unlock"]
 	path = repos/unlock
 	url = https://github.com/udoprog/unlock
