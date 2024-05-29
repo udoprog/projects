@@ -20,17 +20,13 @@ colors = { github = "8da0cb", crates_io = "fc8d62", docs_rs = "66c2a5" }
 badge_height = 20
 branch = "main"
 
-[workflows.weekly]
-template = "data/weekly.yml"
-name = "Weekly"
-features = [
-    "schedule-random-weekly"
-]
-
 [workflows.ci]
 template = "data/ci.yml"
 name = "CI"
 branch = "main"
+features = [
+    "schedule-random-weekly"
+]
 
 [[version]]
 paths = ["src/**/*.rs"]
