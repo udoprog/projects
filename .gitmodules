@@ -1,158 +1,158 @@
 [submodule "fixed-map"]
 	path = repos/fixed-map
-	url = https://github.com/udoprog/fixed-map
+	url = git@github.com:udoprog/fixed-map
 	branch = main
 [submodule "genco"]
 	path = repos/genco
-	url = https://github.com/udoprog/genco
+	url = git@github.com:udoprog/genco
 	branch = main
 [submodule "relative-path"]
 	path = repos/relative-path
-	url = https://github.com/udoprog/relative-path
+	url = git@github.com:udoprog/relative-path
 	branch = main
 [submodule "leaky-bucket"]
 	path = repos/leaky-bucket
-	url = https://github.com/udoprog/leaky-bucket
+	url = git@github.com:udoprog/leaky-bucket
 	branch = main
 [submodule "serde-hashkey"]
 	path = repos/serde-hashkey
-	url = https://github.com/udoprog/serde-hashkey
+	url = git@github.com:udoprog/serde-hashkey
 	branch = main
 [submodule "musli"]
 	path = repos/musli
-	url = https://github.com/udoprog/musli
+	url = git@github.com:udoprog/musli
 	branch = main
 [submodule "unsync"]
 	path = repos/unsync
-	url = https://github.com/udoprog/unsync
+	url = git@github.com:udoprog/unsync
 	branch = main
 [submodule "unicycle"]
 	path = repos/unicycle
-	url = https://github.com/udoprog/unicycle
+	url = git@github.com:udoprog/unicycle
 	branch = main
 [submodule "checkers"]
 	path = repos/checkers
-	url = https://github.com/udoprog/checkers
+	url = git@github.com:udoprog/checkers
 	branch = main
 [submodule "async-oauth2"]
 	path = repos/async-oauth2
-	url = https://github.com/udoprog/async-oauth2
+	url = git@github.com:udoprog/async-oauth2
 	branch = main
 [submodule "argwerk"]
 	path = repos/argwerk
-	url = https://github.com/udoprog/argwerk
+	url = git@github.com:udoprog/argwerk
 	branch = main
 [submodule "selectme"]
 	path = repos/selectme
-	url = https://github.com/udoprog/selectme
+	url = git@github.com:udoprog/selectme
 	branch = main
 [submodule "syntree"]
 	path = repos/syntree
-	url = https://github.com/udoprog/syntree
+	url = git@github.com:udoprog/syntree
 	branch = main
 [submodule "anything"]
 	path = repos/anything
-	url = https://github.com/udoprog/anything
+	url = git@github.com:udoprog/anything
 	branch = main
 [submodule "bittle"]
 	path = repos/bittle
-	url = https://github.com/udoprog/bittle
+	url = git@github.com:udoprog/bittle
 	branch = main
 [submodule "quickcfg"]
 	path = repos/quickcfg
-	url = https://github.com/udoprog/quickcfg
+	url = git@github.com:udoprog/quickcfg
 	branch = main
 [submodule "async-fuse"]
 	path = repos/async-fuse
-	url = https://github.com/udoprog/async-fuse
+	url = git@github.com:udoprog/async-fuse
 	branch = main
 [submodule "futures-cache"]
 	path = repos/futures-cache
-	url = https://github.com/udoprog/futures-cache
+	url = git@github.com:udoprog/futures-cache
 	branch = main
 [submodule "repos/async-injector"]
 	path = repos/async-injector
-	url = https://github.com/udoprog/async-injector
+	url = git@github.com:udoprog/async-injector
 	branch = main
 [submodule "repos/uniset"]
 	path = repos/uniset
-	url = https://github.com/udoprog/uniset
+	url = git@github.com:udoprog/uniset
 	branch = main
 [submodule "repos/audio"]
 	path = repos/audio
-	url = https://github.com/udoprog/audio
+	url = git@github.com:udoprog/audio
 	branch = main
 [submodule "repos/markerpen"]
 	path = repos/markerpen
-	url = https://github.com/udoprog/markerpen
+	url = git@github.com:udoprog/markerpen
 	branch = main
 [submodule "repos/hodoku"]
 	path = repos/hodoku
-	url = https://github.com/udoprog/hodoku
+	url = git@github.com:udoprog/hodoku
 	branch = main
 [submodule "repos/aiocp"]
 	path = repos/aiocp
-	url = https://github.com/udoprog/aiocp
+	url = git@github.com:udoprog/aiocp
 	branch = main
 [submodule "repos/ptscan"]
 	path = repos/ptscan
-	url = https://github.com/udoprog/ptscan
+	url = git@github.com:udoprog/ptscan
 	branch = main
 [submodule "repos/fixed-vec-deque"]
 	path = repos/fixed-vec-deque
-	url = https://github.com/udoprog/fixed-vec-deque
+	url = git@github.com:udoprog/fixed-vec-deque
 	branch = main
 [submodule "repos/sieve-rs"]
 	path = repos/sieve-rs
-	url = https://github.com/udoprog/sieve-rs
+	url = git@github.com:udoprog/sieve-rs
 	branch = main
 [submodule "repos/ontv"]
 	path = repos/ontv
-	url = https://github.com/udoprog/ontv
+	url = git@github.com:udoprog/ontv
 	branch = main
 [submodule "repos/rune"]
 	path = repos/rune
-	url = https://github.com/rune-rs/rune
+	url = git@github.com:rune-rs/rune
 	branch = main
 [submodule "repos/sqlite-ll"]
 	path = repos/sqlite-ll
-	url = https://github.com/udoprog/sqlite-ll
+	url = git@github.com:udoprog/sqlite-ll
 	branch = main
 [submodule "repos/gorilla"]
 	path = repos/gorilla
-	url = https://github.com/udoprog/gorilla
+	url = git@github.com:udoprog/gorilla
 	branch = main
 [submodule "repos/kick"]
 	path = repos/kick
-	url = https://github.com/udoprog/kick
+	url = git@github.com:udoprog/kick
 	branch = main
 [submodule "repos/OxidizeBot"]
 	path = repos/OxidizeBot
-	url = https://github.com/udoprog/OxidizeBot
+	url = git@github.com:udoprog/OxidizeBot
 	branch = main
 [submodule "repos/nondestructive"]
 	path = repos/nondestructive
-	url = https://github.com/udoprog/nondestructive
+	url = git@github.com:udoprog/nondestructive
 	branch = main
 [submodule "repos/jpv"]
 	path = repos/jpv
-	url = https://github.com/udoprog/jpv
+	url = git@github.com:udoprog/jpv
 	branch = main
 [submodule "repos/borrowme"]
 	path = repos/borrowme
-	url = https://github.com/udoprog/borrowme
+	url = git@github.com:udoprog/borrowme
 	branch = main
 [submodule "repos/tokio-dbus"]
 	path = repos/tokio-dbus
-	url = https://github.com/udoprog/tokio-dbus
+	url = git@github.com:udoprog/tokio-dbus
 	branch = main
 [submodule "repos/winctx"]
 	path = repos/winctx
-	url = https://github.com/udoprog/winctx
+	url = git@github.com:udoprog/winctx
 	branch = main
 [submodule "repos/xmlparser"]
 	path = repos/xmlparser
-	url = https://github.com/RazrFalcon/xmlparser
+	url = git@github.com:RazrFalcon/xmlparser
 [submodule "repos/unlock"]
 	path = repos/unlock
-	url = https://github.com/udoprog/unlock
+	url = git@github.com:udoprog/unlock
