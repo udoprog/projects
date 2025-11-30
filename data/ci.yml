@@ -13,20 +13,18 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        rust: ["{{rust_versions.edition_2021}}", stable]
     steps:
     - uses: actions/checkout@v3
-    - uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: {{{{raw}}}}${{matrix.rust}}{{{{/raw}}}}
-    - run: cargo build --workspace --all-targets
+    - uses: dtolnay/rust-toolchain@stable
     - run: cargo test --workspace --all-targets
-      if: matrix.rust == 'stable'
     - run: cargo test --workspace --doc
-      if: matrix.rust == 'stable'
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@{{rust_versions.edition_2021}}
+    - run: cargo build --workspace --all-targets
 
   clippy:
     runs-on: ubuntu-latest

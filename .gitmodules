@@ -156,3 +156,6 @@
 [submodule "repos/unlock"]
 	path = repos/unlock
 	url = git@github.com:udoprog/unlock
+[submodule "repos/wolo"]
+	path = repos/wolo
+	url = https://github.com/udoprog/wolo
