@@ -159,3 +159,6 @@
 [submodule "repos/wolo"]
 	path = repos/wolo
 	url = https://github.com/udoprog/wolo
+[submodule "repos/bookvert"]
+	path = repos/bookvert
+	url = https://github.com/udoprog/bookvert
