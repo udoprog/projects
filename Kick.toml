@@ -70,9 +70,11 @@ height = "{{badge_height}}"
 enabled = false
 
 [repo."repos/aiocp"]
+url = "https://github.com/udoprog/aiocp"
 name = "iocp"
 
 [repo."repos/OxidizeBot"]
+url = "https://github.com/udoprog/OxidizeBot"
 lib = "data/OxidizeBot.lib.md"
 readme = "data/OxidizeBot.readme.md"
 lib_badges = ["-docs.rs", "-crates.io", "+discord"]
@@ -80,6 +82,7 @@ readme_badges = ["-docs.rs", "-crates.io", "+discord"]
 variables = { badge_height = 24 }
 
 [repo."repos/rune"]
+url = "https://github.com/rune-rs/rune"
 lib = "data/rune.lib.md"
 readme = "data/rune.readme.md"
 lib_badges = ["+discord"]
@@ -96,5 +99,120 @@ exclude = [
 ]
 
 [repo."repos/xmlparser"]
+url = "https://github.com/RazrFalcon/xmlparser"
 variables = { branch = "master" }
 workflows.ci = { branch = "master" }
+
+[repo."repos/fixed-map"]
+url = "https://github.com/udoprog/fixed-map"
+
+[repo."repos/genco"]
+url = "https://github.com/udoprog/genco"
+
+[repo."repos/relative-path"]
+url = "https://github.com/udoprog/relative-path"
+
+[repo."repos/leaky-bucket"]
+url = "https://github.com/udoprog/leaky-bucket"
+
+[repo."repos/serde-hashkey"]
+url = "https://github.com/udoprog/serde-hashkey"
+
+[repo."repos/musli"]
+url = "https://github.com/udoprog/musli"
+
+[repo."repos/unsync"]
+url = "https://github.com/udoprog/unsync"
+
+[repo."repos/unicycle"]
+url = "https://github.com/udoprog/unicycle"
+
+[repo."repos/checkers"]
+url = "https://github.com/udoprog/checkers"
+
+[repo."repos/async-oauth2"]
+url = "https://github.com/udoprog/async-oauth2"
+
+[repo."repos/argwerk"]
+url = "https://github.com/udoprog/argwerk"
+
+[repo."repos/selectme"]
+url = "https://github.com/udoprog/selectme"
+
+[repo."repos/syntree"]
+url = "https://github.com/udoprog/syntree"
+
+[repo."repos/anything"]
+url = "https://github.com/udoprog/anything"
+
+[repo."repos/bittle"]
+url = "https://github.com/udoprog/bittle"
+
+[repo."repos/quickcfg"]
+url = "https://github.com/udoprog/quickcfg"
+
+[repo."repos/async-fuse"]
+url = "https://github.com/udoprog/async-fuse"
+
+[repo."repos/futures-cache"]
+url = "https://github.com/udoprog/futures-cache"
+
+[repo."repos/async-injector"]
+url = "https://github.com/udoprog/async-injector"
+
+[repo."repos/uniset"]
+url = "https://github.com/udoprog/uniset"
+
+[repo."repos/audio"]
+url = "https://github.com/udoprog/audio"
+
+[repo."repos/markerpen"]
+url = "https://github.com/udoprog/markerpen"
+
+[repo."repos/hodoku"]
+url = "https://github.com/udoprog/hodoku"
+
+[repo."repos/ptscan"]
+url = "https://github.com/udoprog/ptscan"
+
+[repo."repos/fixed-vec-deque"]
+url = "https://github.com/udoprog/fixed-vec-deque"
+
+[repo."repos/sieve-rs"]
+url = "https://github.com/udoprog/sieve-rs"
+
+[repo."repos/ontv"]
+url = "https://github.com/udoprog/ontv"
+
+[repo."repos/sqlite-ll"]
+url = "https://github.com/udoprog/sqlite-ll"
+
+[repo."repos/gorilla"]
+url = "https://github.com/udoprog/gorilla"
+
+[repo."repos/kick"]
+url = "https://github.com/udoprog/kick"
+
+[repo."repos/nondestructive"]
+url = "https://github.com/udoprog/nondestructive"
+
+[repo."repos/jpv"]
+url = "https://github.com/udoprog/jpv"
+
+[repo."repos/borrowme"]
+url = "https://github.com/udoprog/borrowme"
+
+[repo."repos/tokio-dbus"]
+url = "https://github.com/udoprog/tokio-dbus"
+
+[repo."repos/winctx"]
+url = "https://github.com/udoprog/winctx"
+
+[repo."repos/unlock"]
+url = "https://github.com/udoprog/unlock"
+
+[repo."repos/wolo"]
+url = "https://github.com/udoprog/wolo"
+
+[repo."repos/bookvert"]
+url = "https://github.com/udoprog/bookvert"
