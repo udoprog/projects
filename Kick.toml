@@ -1,3 +1,4 @@
+branch = "main"
 license = "MIT OR Apache-2.0"
 authors = ["John-John Tedro <udoprog@tedro.se>"]
 documentation = "{{docs_rs}}/{{package.name}}"
@@ -100,6 +101,7 @@ exclude = [
 
 [repo."repos/xmlparser"]
 url = "https://github.com/RazrFalcon/xmlparser"
+branch = "master"
 variables = { branch = "master" }
 workflows.ci = { branch = "master" }
 
