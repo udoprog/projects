@@ -6,7 +6,7 @@ readme_badges = ["+build"]
 
 [actions.latest]
 "actions/checkout" = "v4"
-"actions/download-artifact" = "v4"
+"actions/download-artifact" = "v7"
 "actions/upload-artifact" = "v4"
 "actions/cache" = "v4"
 
@@ -186,8 +186,8 @@ url = "https://github.com/udoprog/sieve-rs"
 [repo."repos/ontv"]
 url = "https://github.com/udoprog/ontv"
 
-[repo."repos/sqlite-ll"]
-url = "https://github.com/udoprog/sqlite-ll"
+[repo."repos/sqll"]
+url = "https://github.com/udoprog/sqll"
 
 [repo."repos/gorilla"]
 url = "https://github.com/udoprog/gorilla"
@@ -216,5 +216,8 @@ url = "https://github.com/udoprog/unlock"
 [repo."repos/wolo"]
 url = "https://github.com/udoprog/wolo"
 
-[repo."repos/bookvert"]
-url = "https://github.com/udoprog/bookvert"
+[repo."repos/mediavert"]
+url = "https://github.com/udoprog/mediavert"
+
+[repo."repos/mumbler"]
+url = "https://github.com/udoprog/mumbler"
