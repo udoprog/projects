@@ -1,0 +1,226 @@
+branch = "main"
+license = "MIT OR Apache-2.0"
+authors = ["John-John Tedro <udoprog@tedro.se>"]
+documentation = "{{docs_rs}}/{{package.name}}"
+readme_badges = ["+build"]
+
+[actions.latest]
+"actions/checkout" = "v4"
+"actions/download-artifact" = "v7"
+"actions/upload-artifact" = "v4"
+"actions/cache" = "v4"
+
+[actions.deny]
+"actions-rs/cargo" = "Using `run` is less verbose and faster"
+"actions-rs/toolchain" = "Using `run` is less verbose and faster"
+
+[variables]
+github = "https://github.com"
+docs_rs = "https://docs.rs"
+docs_rs_image = "data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K"
+colors = { github = "8da0cb", crates_io = "fc8d62", docs_rs = "66c2a5" }
+badge_height = 20
+branch = "main"
+
+[workflows.ci]
+template = "~/.config/kick/data/ci.yml"
+name = "CI"
+branch = "main"
+features = [
+    "schedule-random-weekly"
+]
+
+[[version]]
+paths = ["src/**/*.rs"]
+pattern = "//!\\s+[a-z-]+\\s*=\\s*.+(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+).+"
+
+[[badges]]
+alt = "github"
+src = "https://img.shields.io/badge/github-{{dash_escape package.repo}}-{{colors.github}}?style=for-the-badge&logo=github"
+href = "{{github}}/{{package.repo}}"
+height = "{{badge_height}}"
+
+[[badges]]
+id = "crates.io"
+alt = "crates.io"
+src = "https://img.shields.io/crates/v/{{package.name}}.svg?style=for-the-badge&color={{colors.crates_io}}&logo=rust"
+href = "https://crates.io/crates/{{package.name}}"
+height = "{{badge_height}}"
+
+[[badges]]
+id = "docs.rs"
+alt = "docs.rs"
+src = "https://img.shields.io/badge/docs.rs-{{dash_escape package.name}}-{{colors.docs_rs}}?style=for-the-badge&logoColor=white&logo={{docs_rs_image}}"
+href = "{{docs_rs}}/{{package.name}}"
+height = "{{badge_height}}"
+
+[[badges]]
+id = "build"
+alt = "build status"
+src = "https://img.shields.io/github/actions/workflow/status/{{package.repo}}/ci.yml?branch={{branch}}&style=for-the-badge"
+href = "{{github}}/{{package.repo}}/actions?query=branch%3A{{branch}}"
+height = "{{badge_height}}"
+enabled = false
+
+[[badges]]
+id = "discord"
+alt = "chat on discord"
+src = "https://img.shields.io/discord/558644981137670144.svg?logo=discord&style=flat-square"
+href = "https://discord.gg/v5AeNkT"
+height = "{{badge_height}}"
+enabled = false
+
+[repo."~/repo/aiocp"]
+url = "https://github.com/udoprog/aiocp"
+name = "iocp"
+
+[repo."~/repo/OxidizeBot"]
+url = "https://github.com/udoprog/OxidizeBot"
+lib = "~/.config/kick/data/OxidizeBot.lib.md"
+readme = "~/.config/kick/data/OxidizeBot.readme.md"
+lib_badges = ["-docs.rs", "-crates.io", "+discord"]
+readme_badges = ["-docs.rs", "-crates.io", "+discord"]
+variables = { badge_height = 24 }
+
+[repo."~/repo/rune"]
+url = "https://github.com/rune-rs/rune"
+lib = "~/.config/kick/data/rune.lib.md"
+readme = "~/.config/kick/data/rune.readme.md"
+lib_badges = ["+discord"]
+readme_badges = ["+discord"]
+
+[repo."~/repo/OxidizeBot".upgrade]
+exclude = [
+    # web component has multiple dependencies on sled
+    "sled",
+    # diesel maintainers refuse to re-export the needed feature to avoid
+    # depending on this directly.
+    # https://github.com/diesel-rs/diesel/issues/3587
+    "libsqlite3-sys"
+]
+
+[repo."~/repo/xmlparser"]
+url = "https://github.com/RazrFalcon/xmlparser"
+branch = "master"
+variables = { branch = "master" }
+workflows.ci = { branch = "master" }
+
+[repo."~/repo/fixed-map"]
+url = "https://github.com/udoprog/fixed-map"
+
+[repo."~/repo/genco"]
+url = "https://github.com/udoprog/genco"
+
+[repo."~/repo/relative-path"]
+url = "https://github.com/udoprog/relative-path"
+
+[repo."~/repo/leaky-bucket"]
+url = "https://github.com/udoprog/leaky-bucket"
+
+[repo."~/repo/serde-hashkey"]
+url = "https://github.com/udoprog/serde-hashkey"
+
+[repo."~/repo/musli"]
+url = "https://github.com/udoprog/musli"
+
+[repo."~/repo/unsync"]
+url = "https://github.com/udoprog/unsync"
+
+[repo."~/repo/unicycle"]
+url = "https://github.com/udoprog/unicycle"
+
+[repo."~/repo/checkers"]
+url = "https://github.com/udoprog/checkers"
+
+[repo."~/repo/async-oauth2"]
+url = "https://github.com/udoprog/async-oauth2"
+
+[repo."~/repo/argwerk"]
+url = "https://github.com/udoprog/argwerk"
+
+[repo."~/repo/selectme"]
+url = "https://github.com/udoprog/selectme"
+
+[repo."~/repo/syntree"]
+url = "https://github.com/udoprog/syntree"
+
+[repo."~/repo/anything"]
+url = "https://github.com/udoprog/anything"
+
+[repo."~/repo/bittle"]
+url = "https://github.com/udoprog/bittle"
+
+[repo."~/repo/quickcfg"]
+url = "https://github.com/udoprog/quickcfg"
+
+[repo."~/repo/async-fuse"]
+url = "https://github.com/udoprog/async-fuse"
+
+[repo."~/repo/futures-cache"]
+url = "https://github.com/udoprog/futures-cache"
+
+[repo."~/repo/async-injector"]
+url = "https://github.com/udoprog/async-injector"
+
+[repo."~/repo/uniset"]
+url = "https://github.com/udoprog/uniset"
+
+[repo."~/repo/audio"]
+url = "https://github.com/udoprog/audio"
+
+[repo."~/repo/markerpen"]
+url = "https://github.com/udoprog/markerpen"
+
+[repo."~/repo/hodoku"]
+url = "https://github.com/udoprog/hodoku"
+
+[repo."~/repo/ptscan"]
+url = "https://github.com/udoprog/ptscan"
+
+[repo."~/repo/fixed-vec-deque"]
+url = "https://github.com/udoprog/fixed-vec-deque"
+
+[repo."~/repo/sieve-rs"]
+url = "https://github.com/udoprog/sieve-rs"
+
+[repo."~/repo/track"]
+url = "https://github.com/udoprog/track"
+
+[repo."~/repo/sqll"]
+url = "https://github.com/udoprog/sqll"
+
+[repo."~/repo/gorilla"]
+url = "https://github.com/udoprog/gorilla"
+
+[repo."~/repo/kick"]
+url = "https://github.com/udoprog/kick"
+
+[repo."~/repo/nondestructive"]
+url = "https://github.com/udoprog/nondestructive"
+
+[repo."~/repo/jpv"]
+url = "https://github.com/udoprog/jpv"
+
+[repo."~/repo/borrowme"]
+url = "https://github.com/udoprog/borrowme"
+
+[repo."~/repo/tokio-dbus"]
+url = "https://github.com/udoprog/tokio-dbus"
+
+[repo."~/repo/winctx"]
+url = "https://github.com/udoprog/winctx"
+
+[repo."~/repo/unlock"]
+url = "https://github.com/udoprog/unlock"
+
+[repo."~/repo/wolo"]
+url = "https://github.com/udoprog/wolo"
+
+[repo."~/repo/mediavert"]
+url = "https://github.com/udoprog/mediavert"
+
+[repo."~/repo/mumbler"]
+url = "https://github.com/udoprog/mumbler"
+
+[repo."~/repo/yew-e2e"]
+url = "https://github.com/udoprog/yew-e2e"
