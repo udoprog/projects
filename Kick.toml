@@ -23,7 +23,7 @@ badge_height = 20
 branch = "main"
 
 [workflows.ci]
-template = "~/.config/kick/data/ci.yml"
+template = "data/ci.yml"
 name = "CI"
 branch = "main"
 features = [
@@ -76,18 +76,11 @@ name = "iocp"
 
 [repo."~/repo/OxidizeBot"]
 url = "https://github.com/udoprog/OxidizeBot"
-lib = "~/.config/kick/data/OxidizeBot.lib.md"
-readme = "~/.config/kick/data/OxidizeBot.readme.md"
+lib = "data/OxidizeBot.lib.md"
+readme = "data/OxidizeBot.readme.md"
 lib_badges = ["-docs.rs", "-crates.io", "+discord"]
 readme_badges = ["-docs.rs", "-crates.io", "+discord"]
 variables = { badge_height = 24 }
-
-[repo."~/repo/rune"]
-url = "https://github.com/rune-rs/rune"
-lib = "~/.config/kick/data/rune.lib.md"
-readme = "~/.config/kick/data/rune.readme.md"
-lib_badges = ["+discord"]
-readme_badges = ["+discord"]
 
 [repo."~/repo/OxidizeBot".upgrade]
 exclude = [
@@ -98,6 +91,13 @@ exclude = [
     # https://github.com/diesel-rs/diesel/issues/3587
     "libsqlite3-sys"
 ]
+
+[repo."~/repo/rune"]
+url = "https://github.com/rune-rs/rune"
+lib = "data/rune.lib.md"
+readme = "data/rune.readme.md"
+lib_badges = ["+discord"]
+readme_badges = ["+discord"]
 
 [repo."~/repo/xmlparser"]
 url = "https://github.com/RazrFalcon/xmlparser"
@@ -224,3 +224,6 @@ url = "https://github.com/udoprog/mumbler"
 
 [repo."~/repo/yew-e2e"]
 url = "https://github.com/udoprog/yew-e2e"
+
+[repo."~/repo/territory"]
+url = "https://github.com/udoprog/territory"
